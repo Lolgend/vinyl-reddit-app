@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReleaseDetail } from '../pages/ReleaseDetail'
@@ -189,7 +189,7 @@ describe('ReleaseDetail Screen', () => {
       json: async () => mockReleaseResponse24H,
     } as Response)
 
-    renderComponent()
+    renderComponent('/releases/rel-test-123?window=24H')
 
     await waitFor(() => {
       expect(screen.getByTestId('card-physical-specs')).toBeInTheDocument()
@@ -200,6 +200,9 @@ describe('ReleaseDetail Screen', () => {
     expect(specsCard).toHaveTextContent('View Album (3 Releases) →')
     expect(specsCard).toHaveTextContent('Opaque Purple Vinyl')
     expect(specsCard).toHaveTextContent('Rough Trade')
+
+    const parentAlbumLink = within(specsCard).getByRole('link', { name: /View Album/i })
+    expect(parentAlbumLink).toHaveAttribute('href', '/albums/alb-test-456?window=24H')
   })
 
   it('renders Stepped Snapshot chart with LOCF curve', async () => {
@@ -217,6 +220,44 @@ describe('ReleaseDetail Screen', () => {
     const chart = screen.getByTestId('chart-stepped-locf')
     expect(chart).toHaveTextContent(/Stepped Engagement Curve/i)
     expect(chart).toHaveTextContent('24 Buckets · LOCF Sampling')
+  })
+
+  it('renders zero-activity callout banner when window engagement is zero', async () => {
+    const zeroActivityResponse = {
+      ...mockReleaseResponse24H,
+      hero_kpi: {
+        ...mockReleaseResponse24H.hero_kpi,
+        points_gain: 0,
+        submission_engagement: {
+          points_gain: 0,
+          total_score: 0,
+          total_comments: 0,
+          submission_count: 0,
+        },
+      },
+      time_series: Array.from({ length: 24 }).map((_, i) => ({
+        bucket_start: new Date(Date.now() - (24 - i) * 3600000).toISOString(),
+        bucket_end: new Date(Date.now() - (23 - i) * 3600000).toISOString(),
+        cumulative_points: 0,
+        velocity_pts_per_hr: 0,
+        timestamp: new Date(Date.now() - (23 - i) * 3600000).toISOString(),
+        points: 0,
+        velocity: 0,
+      })),
+    }
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => zeroActivityResponse,
+    } as Response)
+
+    renderComponent('/releases/rel-test-123?window=24H')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('zero-activity-callout')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/NO NEW ACTIVITY IN 24H/i)).toBeInTheDocument()
   })
 
   it('renders Reddit Submission Provenance table with 6 columns, badges, metrics, and external Reddit link', async () => {

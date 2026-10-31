@@ -162,10 +162,10 @@ describe('DemandDashboard Page', () => {
     )
   })
 
-  function renderDashboard() {
+  function renderDashboard(initialEntries = ['/']) {
     return render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter initialEntries={initialEntries}>
           <Routes>
             <Route path="/" element={<DemandDashboard />} />
             <Route path="/albums/:albumId" element={<div>Album Detail Screen</div>} />
@@ -189,17 +189,24 @@ describe('DemandDashboard Page', () => {
     expect(screen.getByText('Live Release Feed')).toBeDefined()
   })
 
-  it('renders uniform 5 rows with placeholders when fewer than 5 items exist', async () => {
+  it('renders uniform 5 rows with dashed placeholders across all 3 leaderboard cards', async () => {
     renderDashboard()
 
     await waitFor(() => {
       expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
     })
 
-    // In top_albums we have 2 items, top_releases 2 items, newly_added 1 item
-    // empty slots should be rendered
-    const emptySlots = screen.getAllByText(/EMPTY SLOT/i)
-    expect(emptySlots.length).toBeGreaterThanOrEqual(3)
+    // top_albums has 2 items -> 3 empty slot rows
+    const albumEmptySlots = screen.getAllByTestId('empty-slot-album')
+    expect(albumEmptySlots).toHaveLength(3)
+
+    // top_releases has 2 items -> 3 empty slot rows
+    const releaseEmptySlots = screen.getAllByTestId('empty-slot-release')
+    expect(releaseEmptySlots).toHaveLength(3)
+
+    // newly_added has 1 item -> 4 empty slot rows
+    const newlyEmptySlots = screen.getAllByTestId('empty-slot-newly-added')
+    expect(newlyEmptySlots).toHaveLength(4)
   })
 
   it('allows independent window switching for Top Albums', async () => {
@@ -280,20 +287,64 @@ describe('DemandDashboard Page', () => {
     expect(rows[0].textContent).toContain('In Rainbows')
   })
 
-  it('navigates to album and release detail on click', async () => {
+  it('navigates to album and release detail preserving window parameter', async () => {
+    renderDashboard(['/?window=7D'])
+
+    await waitFor(() => {
+      expect(screen.getByText('OK Computer')).toBeInTheDocument()
+    })
+
+    // In Top Albums card, check link href
+    const albumCard = screen.getByTestId('card-top-albums')
+    const albumLink = within(albumCard).getByRole('link', { name: /ok computer/i })
+    expect(albumLink).toHaveAttribute('href', '/albums/alb-7d-1?window=7D')
+
+    // Click album link
+    fireEvent.click(albumLink)
+
+    await waitFor(() => {
+      expect(screen.getByText('Album Detail Screen')).toBeDefined()
+    })
+  })
+
+  it('renders brutalist empty state with active filter pills and resets filters', async () => {
     renderDashboard()
 
     await waitFor(() => {
       expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
     })
 
-    // Click on In Rainbows album link in Top Albums card
-    const albumCard = screen.getByTestId('card-top-albums')
-    const albumLink = within(albumCard).getByRole('link', { name: /in rainbows/i })
-    fireEvent.click(albumLink)
+    const filterInput = screen.getByPlaceholderText(/filter feed/i)
+    fireEvent.change(filterInput, { target: { value: 'NonexistentVinylTitle123' } })
 
     await waitFor(() => {
-      expect(screen.getByText('Album Detail Screen')).toBeDefined()
+      expect(screen.getByTestId('feed-empty-state')).toBeInTheDocument()
+      expect(screen.getByText('0 MATCHING RECORDS')).toBeInTheDocument()
+      expect(screen.getByText(/Query: "NonexistentVinylTitle123"/i)).toBeInTheDocument()
     })
+
+    const resetBtn = screen.getByTestId('reset-filters-btn')
+    fireEvent.click(resetBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('feed-empty-state')).not.toBeInTheDocument()
+      expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  it('renders Coral Alert banner and retry button on fetch failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new Error('Network failure'))
+    )
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dashboard-error-banner')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/Failed to load demand intelligence/i)).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-retry-btn')).toBeInTheDocument()
   })
 })

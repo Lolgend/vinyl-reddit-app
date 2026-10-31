@@ -109,7 +109,7 @@ export const ArtistDetail: React.FC = () => {
   const { artistId = '' } = useParams<{ artistId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const rawWindow = searchParams.get('window')
+  const rawWindow = searchParams.get('window')?.toUpperCase()
   const window: WindowType =
     rawWindow === '7D' || rawWindow === '1M' ? rawWindow : '24H'
 
@@ -141,7 +141,7 @@ export const ArtistDetail: React.FC = () => {
     )
   }
 
-  // Loading Skeleton State
+  // Loading Skeleton State matching exact container geometries
   if (isLoading) {
     return (
       <div className="flex flex-col gap-6" data-testid="screen-artist-detail-loading">
@@ -150,17 +150,42 @@ export const ArtistDetail: React.FC = () => {
           <div className="flex flex-col gap-2">
             <div className="w-64 h-8 bg-[#E5E0DA] rounded animate-pulse" />
             <div className="w-40 h-4 bg-[#E5E0DA] rounded animate-pulse" />
+            <div className="w-48 h-6 bg-[#E5E0DA] rounded-full animate-pulse mt-1" />
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div
               key={i}
-              className="h-24 bg-white border-[1.5px] border-[#121212] rounded-[6px] p-4 animate-pulse"
-            />
+              className="h-28 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
+            >
+              <div className="flex justify-between">
+                <div className="w-24 h-3.5 bg-[#E5E0DA] rounded animate-pulse" />
+                <div className="w-12 h-4 bg-[#E5E0DA] rounded animate-pulse" />
+              </div>
+              <div className="w-20 h-7 bg-[#E5E0DA] rounded animate-pulse" />
+              <div className="w-full h-2 bg-[#E5E0DA] rounded animate-pulse" />
+            </div>
           ))}
         </div>
-        <div className="h-80 bg-white border-[1.5px] border-[#121212] rounded-[6px] animate-pulse" />
+        {/* Tracked Albums Matrix Skeleton */}
+        <div className="h-72 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col justify-between">
+          <div className="w-48 h-6 bg-[#E5E0DA] rounded animate-pulse" />
+          <div className="flex flex-col gap-2">
+            {Array.from({ length: 4 }).map((_, k) => (
+              <div key={k} className="w-full h-10 bg-[#E5E0DA] rounded animate-pulse" />
+            ))}
+          </div>
+        </div>
+        {/* Child Releases Ledger Skeleton */}
+        <div className="h-72 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col justify-between">
+          <div className="w-48 h-6 bg-[#E5E0DA] rounded animate-pulse" />
+          <div className="flex flex-col gap-2">
+            {Array.from({ length: 4 }).map((_, m) => (
+              <div key={m} className="w-full h-10 bg-[#E5E0DA] rounded animate-pulse" />
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
@@ -185,6 +210,7 @@ export const ArtistDetail: React.FC = () => {
           <button
             onClick={() => refetch()}
             className="px-4 py-2 bg-[#121212] text-white font-mono text-xs font-bold rounded-[4px] shadow-brutal-sm hover:bg-[#9B6DFF] hover:text-[#121212] transition-colors"
+            data-testid="artist-retry-btn"
           >
             Retry
           </button>
@@ -202,10 +228,10 @@ export const ArtistDetail: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-6" data-testid="screen-artist-detail">
-      {/* Back Link */}
+      {/* Back Link preserving window parameter */}
       <div>
         <Link
-          to="/directory?tab=artists"
+          to={`/directory?tab=artists&window=${window}`}
           className="inline-flex items-center gap-1.5 font-mono text-xs text-[#646464] hover:text-[#121212] transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -473,7 +499,7 @@ export const ArtistDetail: React.FC = () => {
                     {/* Column 7: Action */}
                     <td className="py-3 px-3 text-right">
                       <Link
-                        to={`/albums/${alb.album_id}`}
+                        to={`/albums/${alb.album_id}?window=${window}`}
                         className="inline-block font-mono text-xs font-bold text-[#121212] bg-[#FAF7F5] border-[1.5px] border-[#121212] px-2.5 py-1 rounded-[4px] hover:bg-[#9B6DFF] hover:text-[#121212] transition-colors shadow-brutal-sm active:translate-x-0.5 active:translate-y-0.5"
                       >
                         View Album →
@@ -542,7 +568,7 @@ export const ArtistDetail: React.FC = () => {
                     {/* Column 1: Parent Album */}
                     <td className="py-3 px-3">
                       <Link
-                        to={`/albums/${rel.album_id}`}
+                        to={`/albums/${rel.album_id}?window=${window}`}
                         className="font-mono text-xs font-bold text-[#121212] hover:text-[#9B6DFF] transition-colors"
                       >
                         {rel.album_title}
@@ -593,7 +619,7 @@ export const ArtistDetail: React.FC = () => {
                     {/* Column 7: Action */}
                     <td className="py-3 px-3 text-right">
                       <Link
-                        to={`/releases/${rel.release_id}`}
+                        to={`/releases/${rel.release_id}?window=${window}`}
                         className="inline-block font-mono text-xs font-bold text-[#121212] bg-[#FAF7F5] border-[1.5px] border-[#121212] px-2.5 py-1 rounded-[4px] hover:bg-[#9B6DFF] hover:text-[#121212] transition-colors shadow-brutal-sm active:translate-x-0.5 active:translate-y-0.5"
                       >
                         View Release →

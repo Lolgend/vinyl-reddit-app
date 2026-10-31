@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import React, { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUpRight, Flame, Layers, Search, Sparkles, TrendingUp, X } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Flame, Layers, Search, Sparkles, TrendingUp, X } from 'lucide-react'
 import { VinylMonogram } from '../components/VinylMonogram'
 import { formatRelativeTime } from '../utils/formatTime'
 
@@ -80,24 +80,68 @@ async function fetchDashboard(window: WindowType): Promise<DashboardResponse> {
 }
 
 export const DemandDashboard: React.FC = () => {
-  // Independent window switchers for Top Albums and Top Releases
-  const [albumWindow, setAlbumWindow] = useState<WindowType>('24H')
-  const [releaseWindow, setReleaseWindow] = useState<WindowType>('24H')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawWindow = searchParams.get('window')?.toUpperCase()
+  const initialWindow: WindowType = rawWindow === '7D' || rawWindow === '1M' ? rawWindow : '24H'
+
+  // Independent window switchers for Top Albums and Top Releases initialized from URL
+  const [albumWindow, setAlbumWindow] = useState<WindowType>(initialWindow)
+  const [releaseWindow, setReleaseWindow] = useState<WindowType>(initialWindow)
+
+  // Synchronize with external URL changes if any
+  useEffect(() => {
+    if (rawWindow === '24H' || rawWindow === '7D' || rawWindow === '1M') {
+      setAlbumWindow(rawWindow)
+      setReleaseWindow(rawWindow)
+    }
+  }, [rawWindow])
+
+  const handleAlbumWindowChange = (w: WindowType) => {
+    setAlbumWindow(w)
+    const next = new URLSearchParams(searchParams)
+    next.set('window', w)
+    setSearchParams(next)
+  }
+
+  const handleReleaseWindowChange = (w: WindowType) => {
+    setReleaseWindow(w)
+    const next = new URLSearchParams(searchParams)
+    next.set('window', w)
+    setSearchParams(next)
+  }
 
   // Live Release Feed controls
   const [feedQuery, setFeedQuery] = useState('')
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
   const [sortBy, setSortBy] = useState<SortOption>('hype_index')
 
-  const { data: albumData, isLoading: albumLoading } = useQuery({
+  const {
+    data: albumData,
+    isLoading: albumLoading,
+    isError: isAlbumError,
+    error: albumError,
+    refetch: refetchAlbum,
+  } = useQuery({
     queryKey: ['dashboard', albumWindow],
     queryFn: () => fetchDashboard(albumWindow),
   })
 
-  const { data: releaseData, isLoading: releaseLoading } = useQuery({
+  const {
+    data: releaseData,
+    isLoading: releaseLoading,
+    isError: isReleaseError,
+    error: releaseError,
+    refetch: refetchRelease,
+  } = useQuery({
     queryKey: ['dashboard', releaseWindow],
     queryFn: () => fetchDashboard(releaseWindow),
   })
+
+  const hasDashboardError = isAlbumError || isReleaseError
+  const dashboardErrorMessage =
+    (albumError instanceof Error ? albumError.message : null) ||
+    (releaseError instanceof Error ? releaseError.message : null) ||
+    'Failed to load demand intelligence.'
 
   // Filter and sort Live Release Feed
   const rawFeed = albumData?.live_feed || []
@@ -167,6 +211,32 @@ export const DemandDashboard: React.FC = () => {
         </p>
       </div>
 
+      {/* Coral Error Alert Banner */}
+      {hasDashboardError && (
+        <div
+          className="bg-[#F56565] border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-6 text-[#121212] flex flex-col gap-4"
+          data-testid="dashboard-error-banner"
+        >
+          <div className="flex items-center gap-2 font-grotesk font-bold text-lg">
+            <AlertTriangle className="w-5 h-5 text-[#121212]" />
+            Failed to load demand intelligence
+          </div>
+          <p className="font-sans text-sm">{dashboardErrorMessage}</p>
+          <div>
+            <button
+              onClick={() => {
+                refetchAlbum()
+                refetchRelease()
+              }}
+              className="px-4 py-2 bg-[#121212] text-white font-mono text-xs font-bold rounded-[4px] shadow-brutal-sm hover:bg-[#9B6DFF] hover:text-[#121212] transition-colors"
+              data-testid="dashboard-retry-btn"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top 3 Intelligence Cards Row (Uniform 5-Row Height) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Card 1: Top Albums */}
@@ -186,7 +256,7 @@ export const DemandDashboard: React.FC = () => {
                   <button
                     key={w}
                     data-window={w}
-                    onClick={() => setAlbumWindow(w)}
+                    onClick={() => handleAlbumWindowChange(w)}
                     className={`px-2 py-0.5 rounded-full font-mono text-[11px] transition-all ${
                       albumWindow === w
                         ? 'bg-[#121212] text-white font-bold shadow-brutal-sm'
@@ -208,7 +278,8 @@ export const DemandDashboard: React.FC = () => {
               ? Array.from({ length: 5 }).map((_, i) => (
                   <div
                     key={`alb-skel-${i}`}
-                    className="h-[52px] bg-[#FAF7F5] border border-[#E5E0DA] rounded-[4px] animate-pulse"
+                    className="h-[52px] bg-[#E5E0DA] border-[1.5px] border-[#121212] rounded-[4px] animate-pulse"
+                    data-testid="album-skeleton-row"
                   />
                 ))
               : (
@@ -229,7 +300,7 @@ export const DemandDashboard: React.FC = () => {
                           />
                           <div className="min-w-0">
                             <Link
-                              to={`/albums/${album.album_id}`}
+                              to={`/albums/${album.album_id}?window=${albumWindow}`}
                               className="font-grotesk font-bold text-xs text-[#121212] hover:underline truncate block"
                               title={`${album.combined_artist} — ${album.album_title}`}
                             >
@@ -253,6 +324,7 @@ export const DemandDashboard: React.FC = () => {
                     {Array.from({ length: Math.max(0, 5 - topAlbums.length) }).map((_, i) => (
                       <div
                         key={`alb-empty-${i}`}
+                        data-testid="empty-slot-album"
                         className="h-[52px] border border-dashed border-[#E5E0DA] rounded-[4px] flex items-center justify-center text-xs font-mono text-[#646464] select-none"
                       >
                         — EMPTY SLOT —
@@ -280,7 +352,7 @@ export const DemandDashboard: React.FC = () => {
                   <button
                     key={w}
                     data-window={w}
-                    onClick={() => setReleaseWindow(w)}
+                    onClick={() => handleReleaseWindowChange(w)}
                     className={`px-2 py-0.5 rounded-full font-mono text-[11px] transition-all ${
                       releaseWindow === w
                         ? 'bg-[#121212] text-white font-bold shadow-brutal-sm'
@@ -302,7 +374,8 @@ export const DemandDashboard: React.FC = () => {
               ? Array.from({ length: 5 }).map((_, i) => (
                   <div
                     key={`rel-skel-${i}`}
-                    className="h-[52px] bg-[#FAF7F5] border border-[#E5E0DA] rounded-[4px] animate-pulse"
+                    className="h-[52px] bg-[#E5E0DA] border-[1.5px] border-[#121212] rounded-[4px] animate-pulse"
+                    data-testid="release-skeleton-row"
                   />
                 ))
               : (
@@ -323,7 +396,7 @@ export const DemandDashboard: React.FC = () => {
                           />
                           <div className="min-w-0">
                             <Link
-                              to={`/releases/${release.release_id}`}
+                              to={`/releases/${release.release_id}?window=${releaseWindow}`}
                               className="font-grotesk font-bold text-xs text-[#121212] hover:underline truncate block"
                               title={`${release.combined_artist} — ${release.album_title}`}
                             >
@@ -347,6 +420,7 @@ export const DemandDashboard: React.FC = () => {
                     {Array.from({ length: Math.max(0, 5 - topReleases.length) }).map((_, i) => (
                       <div
                         key={`rel-empty-${i}`}
+                        data-testid="empty-slot-release"
                         className="h-[52px] border border-dashed border-[#E5E0DA] rounded-[4px] flex items-center justify-center text-xs font-mono text-[#646464] select-none"
                       >
                         — EMPTY SLOT —
@@ -382,7 +456,8 @@ export const DemandDashboard: React.FC = () => {
               ? Array.from({ length: 5 }).map((_, i) => (
                   <div
                     key={`new-skel-${i}`}
-                    className="h-[52px] bg-[#FAF7F5] border border-[#E5E0DA] rounded-[4px] animate-pulse"
+                    className="h-[52px] bg-[#E5E0DA] border-[1.5px] border-[#121212] rounded-[4px] animate-pulse"
+                    data-testid="newly-added-skeleton-row"
                   />
                 ))
               : (
@@ -403,7 +478,7 @@ export const DemandDashboard: React.FC = () => {
                           />
                           <div className="min-w-0">
                             <Link
-                              to={`/releases/${release.release_id}`}
+                              to={`/releases/${release.release_id}?window=24H`}
                               className="font-grotesk font-bold text-xs text-[#121212] hover:underline truncate block"
                               title={`${release.combined_artist} — ${release.album_title}`}
                             >
@@ -427,6 +502,7 @@ export const DemandDashboard: React.FC = () => {
                     {Array.from({ length: Math.max(0, 5 - newlyAdded.length) }).map((_, i) => (
                       <div
                         key={`new-empty-${i}`}
+                        data-testid="empty-slot-newly-added"
                         className="h-[52px] border border-dashed border-[#E5E0DA] rounded-[4px] flex items-center justify-center text-xs font-mono text-[#646464] select-none"
                       >
                         — EMPTY SLOT —
@@ -524,21 +600,43 @@ export const DemandDashboard: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E5E0DA] font-sans text-xs">
-              {filteredFeed.length === 0 ? (
-                <tr>
+              {albumLoading ? (
+                Array.from({ length: 5 }).map((_, idx) => (
+                  <tr key={`feed-skel-${idx}`} data-testid="feed-skeleton-row" className="h-[56px]">
+                    <td colSpan={7} className="py-3 px-3">
+                      <div className="h-8 bg-[#E5E0DA] border-[1.5px] border-[#121212] rounded-[4px] animate-pulse" />
+                    </td>
+                  </tr>
+                ))
+              ) : filteredFeed.length === 0 ? (
+                <tr data-testid="feed-empty-state">
                   <td colSpan={7} className="py-12 text-center">
-                    <div className="font-mono text-sm font-bold text-[#121212]">
+                    <div className="font-mono text-base font-bold text-[#121212]">
                       0 MATCHING RECORDS
                     </div>
-                    <div className="text-xs text-[#646464] mt-1 font-sans">
-                      No live release feed records matched your current query or tier filter.
+                    <div className="text-xs text-[#646464] mt-2 font-sans flex items-center justify-center gap-2 flex-wrap">
+                      {feedQuery && (
+                        <span className="inline-block bg-[#F7F3F0] border border-[#121212] px-2.5 py-0.5 rounded font-mono text-xs text-[#121212]">
+                          Query: &quot;{feedQuery}&quot;
+                        </span>
+                      )}
+                      {tierFilter !== 'all' && (
+                        <span className="inline-block bg-[#F7F3F0] border border-[#121212] px-2.5 py-0.5 rounded font-mono text-xs text-[#121212]">
+                          Tier: {tierFilter.toUpperCase()}
+                        </span>
+                      )}
+                      {!feedQuery && tierFilter === 'all' && (
+                        <span>No live release feed records matched your current query or tier filter.</span>
+                      )}
                     </div>
                     <button
                       onClick={() => {
                         setFeedQuery('')
                         setTierFilter('all')
+                        setSortBy('hype_index')
                       }}
-                      className="mt-3 px-3 py-1 bg-[#9B6DFF] border-[1.5px] border-[#121212] rounded-[4px] font-mono text-xs font-bold text-[#121212] shadow-brutal-sm hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[1px] active:translate-y-[1px]"
+                      data-testid="reset-filters-btn"
+                      className="mt-4 px-4 py-2 bg-[#9B6DFF] border-[1.5px] border-[#121212] rounded-[4px] font-mono text-xs font-bold text-[#121212] shadow-brutal-sm hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[1px] active:translate-y-[1px] transition-transform"
                     >
                       Reset Filters
                     </button>
@@ -561,7 +659,7 @@ export const DemandDashboard: React.FC = () => {
                         />
                         <div className="min-w-0">
                           <Link
-                            to={`/albums/${item.album_id}`}
+                            to={`/albums/${item.album_id}?window=${albumWindow}`}
                             className="font-grotesk font-bold text-xs text-[#121212] hover:underline block truncate"
                           >
                             {item.album_title}
@@ -621,7 +719,7 @@ export const DemandDashboard: React.FC = () => {
                     <td className="py-3 px-3 text-right">
                       <div className="flex flex-col items-end gap-1">
                         <Link
-                          to={`/releases/${item.release_id}`}
+                          to={`/releases/${item.release_id}?window=${albumWindow}`}
                           className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-[#121212] hover:text-[#9B6DFF] transition-colors"
                         >
                           View <ArrowUpRight className="w-3.5 h-3.5" />

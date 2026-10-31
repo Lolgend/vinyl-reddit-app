@@ -238,13 +238,13 @@ describe('AlbumDetail Screen', () => {
     expect(within(card).getByText('Wide / Unspecified')).toBeInTheDocument()
   })
 
-  it('renders 7-column child releases matrix with action link', async () => {
+  it('renders 7-column child releases matrix with action link preserving window query', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockAlbumResponse24H,
     } as Response)
 
-    renderComponent()
+    renderComponent('/albums/alb-test-123?window=24H')
 
     await waitFor(() => {
       expect(screen.getByTestId('table-child-releases')).toBeInTheDocument()
@@ -252,8 +252,46 @@ describe('AlbumDetail Screen', () => {
 
     const viewLinks = screen.getAllByRole('link', { name: /View Release →/i })
     expect(viewLinks.length).toBe(2)
-    expect(viewLinks[0]).toHaveAttribute('href', '/releases/rel-1')
-    expect(viewLinks[1]).toHaveAttribute('href', '/releases/rel-2')
+    expect(viewLinks[0]).toHaveAttribute('href', '/releases/rel-1?window=24H')
+    expect(viewLinks[1]).toHaveAttribute('href', '/releases/rel-2?window=24H')
+  })
+
+  it('renders zero-activity callout banner when window engagement is zero', async () => {
+    const zeroActivityResponse = {
+      ...mockAlbumResponse24H,
+      hero_kpi: {
+        ...mockAlbumResponse24H.hero_kpi,
+        points_gain: 0,
+        reddit_demand: {
+          points_gain: 0,
+          total_score: 0,
+          total_comments: 0,
+          submission_count: 0,
+        },
+      },
+      time_series: Array.from({ length: 24 }).map((_, i) => ({
+        bucket_start: new Date(Date.now() - (24 - i) * 3600000).toISOString(),
+        bucket_end: new Date(Date.now() - (23 - i) * 3600000).toISOString(),
+        cumulative_points: 0,
+        velocity_pts_per_hr: 0,
+        timestamp: new Date(Date.now() - (23 - i) * 3600000).toISOString(),
+        points: 0,
+        velocity: 0,
+      })),
+    }
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => zeroActivityResponse,
+    } as Response)
+
+    renderComponent('/albums/alb-test-123?window=24H')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('zero-activity-callout')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/NO NEW ACTIVITY IN 24H/i)).toBeInTheDocument()
   })
 
   it('toggles window switcher and refetches with new window parameter', async () => {

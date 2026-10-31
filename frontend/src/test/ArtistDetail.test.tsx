@@ -211,13 +211,13 @@ describe('ArtistDetail Screen', () => {
     expect(demandCard).toHaveTextContent('5 Posts · 220 upvotes · 45 comments')
   })
 
-  it('renders Tracked Albums matrix with 7 columns, Solo and Combined badges, and View Album links', async () => {
+  it('renders Tracked Albums matrix with 7 columns, Solo and Combined badges, and View Album links with window query', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockArtistResponse24H,
     } as Response)
 
-    renderComponent()
+    renderComponent('/artists/art-test-123?window=24H')
 
     await waitFor(() => {
       expect(screen.getByTestId('table-tracked-albums')).toBeInTheDocument()
@@ -235,17 +235,17 @@ describe('ArtistDetail Screen', () => {
 
     const viewAlbumLinks = within(table).getAllByRole('link', { name: /View Album →/i })
     expect(viewAlbumLinks).toHaveLength(2)
-    expect(viewAlbumLinks[0]).toHaveAttribute('href', '/albums/alb-1')
-    expect(viewAlbumLinks[1]).toHaveAttribute('href', '/albums/alb-2')
+    expect(viewAlbumLinks[0]).toHaveAttribute('href', '/albums/alb-1?window=24H')
+    expect(viewAlbumLinks[1]).toHaveAttribute('href', '/albums/alb-2?window=24H')
   })
 
-  it('renders Child Releases discography ledger with 7 columns, variants, retailers, and View Release links', async () => {
+  it('renders Child Releases discography ledger with 7 columns, variants, retailers, and View Release links with window query', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockArtistResponse24H,
     } as Response)
 
-    renderComponent()
+    renderComponent('/artists/art-test-123?window=24H')
 
     await waitFor(() => {
       expect(screen.getByTestId('table-child-releases')).toBeInTheDocument()
@@ -258,7 +258,7 @@ describe('ArtistDetail Screen', () => {
 
     const viewReleaseLinks = within(table).getAllByRole('link', { name: /View Release →/i })
     expect(viewReleaseLinks).toHaveLength(3)
-    expect(viewReleaseLinks[0]).toHaveAttribute('href', '/releases/rel-1')
+    expect(viewReleaseLinks[0]).toHaveAttribute('href', '/releases/rel-1?window=24H')
   })
 
   it('switches window from 24H to 7D updating fetch query', async () => {
@@ -273,7 +273,7 @@ describe('ArtistDetail Screen', () => {
         json: async () => mockArtistResponse7D,
       } as Response)
 
-    renderComponent()
+    renderComponent('/artists/art-test-123?window=24H')
 
     await waitFor(() => {
       expect(
