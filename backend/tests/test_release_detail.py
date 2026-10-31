@@ -46,6 +46,7 @@ class TestReleaseDetailService:
         assert specs.combined_artist == detail.combined_artist
         assert specs.variant
         assert specs.retailer_name
+        assert specs.artist_id is not None
 
         # Parent album info
         parent = detail.parent_album
@@ -62,6 +63,8 @@ class TestReleaseDetailService:
         assert hero.submission_engagement.total_score >= 0
         assert hero.submission_engagement.total_comments >= 0
         assert hero.submission_engagement.points_gain >= 0
+        assert hasattr(hero.submission_engagement, "latest_upvote_ratio")
+        assert hasattr(hero.submission_engagement, "upvote_ratio")
         assert hero.provenance_summary.linked_submissions_count >= 0
 
         # Time series buckets (24H => 24 buckets)

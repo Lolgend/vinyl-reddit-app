@@ -11,6 +11,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { VinylMonogram } from '../components/VinylMonogram'
+import { TierBadge } from '../components/TierBadge'
 import { formatRelativeTime } from '../utils/formatTime'
 
 type WindowType = '24H' | '7D' | '1M'
@@ -122,24 +123,6 @@ export const ArtistDetail: React.FC = () => {
     queryFn: () => fetchArtistDetail(artistId, window),
     enabled: Boolean(artistId),
   })
-
-  const renderTierBadge = (index: number, tier: TierType) => {
-    const bg =
-      tier === 'high'
-        ? 'bg-[#68D391] text-[#121212]'
-        : tier === 'moderate'
-        ? 'bg-[#ECC94B] text-[#121212]'
-        : 'bg-[#E5E0DA] text-[#646464]'
-
-    return (
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] border-[1.5px] border-[#121212] font-mono text-xs font-bold shrink-0 ${bg}`}
-      >
-        {index}
-        <span className="text-[10px] font-normal uppercase">{tier}</span>
-      </span>
-    )
-  }
 
   // Loading Skeleton State matching exact container geometries
   if (isLoading) {
@@ -294,7 +277,7 @@ export const ArtistDetail: React.FC = () => {
               <Flame className="w-3.5 h-3.5 text-[#121212]" />
               Hype Index
             </span>
-            {renderTierBadge(hero_kpi.hype_index, hero_kpi.tier)}
+            <TierBadge value={hero_kpi.hype_index} tier={hero_kpi.tier} />
           </div>
           <div>
             <div className="font-mono font-bold text-2xl text-[#121212]">
@@ -382,7 +365,7 @@ export const ArtistDetail: React.FC = () => {
               <span className="text-sm font-normal text-[#646464]">pts</span>
             </div>
             <div className="font-mono text-[11px] text-[#646464] mt-2 truncate">
-              {hero_kpi.reddit_demand.total_submissions} Posts ·{' '}
+              {hero_kpi.reddit_demand.total_submissions} Submissions ·{' '}
               {hero_kpi.reddit_demand.total_score} upvotes ·{' '}
               {hero_kpi.reddit_demand.total_comments} comments
             </div>
@@ -469,7 +452,7 @@ export const ArtistDetail: React.FC = () => {
 
                     {/* Column 4: Submissions */}
                     <td className="py-3 px-3 font-mono text-xs text-[#646464]">
-                      {alb.submission_count} posts · {alb.score} pts · {alb.num_comments} comments
+                      {alb.submission_count} submissions · {alb.score} pts · {alb.num_comments} comments
                     </td>
 
                     {/* Column 5: Hype Velocity */}
@@ -480,7 +463,7 @@ export const ArtistDetail: React.FC = () => {
                     {/* Column 6: Hype Index */}
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-1.5">
-                        {renderTierBadge(alb.hype_index, alb.tier)}
+                        <TierBadge value={alb.hype_index} tier={alb.tier} />
                         <div className="w-12 bg-[#E5E0DA] h-1.5 rounded-[1px] overflow-hidden border border-[#121212]">
                           <div
                             className={`h-full ${
@@ -539,7 +522,7 @@ export const ArtistDetail: React.FC = () => {
           </span>
         </div>
         <p className="font-sans text-xs text-[#646464] mb-4">
-          All physical editions and retailer colorways across {artist.name}&apos;s catalog with direct links to release intelligence.
+          All physical variants across {artist.name}&apos;s catalog with direct links to release intelligence.
         </p>
 
         <div className="overflow-x-auto">
@@ -589,7 +572,7 @@ export const ArtistDetail: React.FC = () => {
 
                     {/* Column 4: Submissions */}
                     <td className="py-3 px-3 font-mono text-xs text-[#646464]">
-                      {rel.submission_count} posts · {rel.score} pts · {rel.num_comments} comments
+                      {rel.submission_count} submissions · {rel.score} pts · {rel.num_comments} comments
                     </td>
 
                     {/* Column 5: Hype Velocity */}
@@ -600,7 +583,7 @@ export const ArtistDetail: React.FC = () => {
                     {/* Column 6: Hype Index */}
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-1.5">
-                        {renderTierBadge(rel.hype_index, rel.tier)}
+                        <TierBadge value={rel.hype_index} tier={rel.tier} />
                         <div className="w-12 bg-[#E5E0DA] h-1.5 rounded-[1px] overflow-hidden border border-[#121212]">
                           <div
                             className={`h-full ${

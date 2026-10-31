@@ -15,6 +15,7 @@ import {
   User,
 } from 'lucide-react'
 import { VinylMonogram } from '../components/VinylMonogram'
+import { TierBadge } from '../components/TierBadge'
 import { formatRelativeTime } from '../utils/formatTime'
 
 type WindowType = '24H' | '7D' | '1M'
@@ -64,6 +65,7 @@ interface ReleaseDetailResponse {
     album_id: string
     album_title: string
     combined_artist: string
+    artist_id?: string | null
     variant: string
     retailer_name: string
     first_seen_at: string | null
@@ -84,6 +86,8 @@ interface ReleaseDetailResponse {
       total_score: number
       total_comments: number
       submission_count: number
+      latest_upvote_ratio?: number | null
+      upvote_ratio?: number | null
     }
     provenance_summary: {
       first_seen_at: string | null
@@ -130,24 +134,6 @@ export const ReleaseDetail: React.FC = () => {
     queryFn: () => fetchReleaseDetail(releaseId, window),
     enabled: Boolean(releaseId),
   })
-
-  const renderTierBadge = (index: number, tier: TierType) => {
-    const bg =
-      tier === 'high'
-        ? 'bg-[#68D391] text-[#121212]'
-        : tier === 'moderate'
-        ? 'bg-[#ECC94B] text-[#121212]'
-        : 'bg-[#E5E0DA] text-[#646464]'
-
-    return (
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] border-[1.5px] border-[#121212] font-mono text-xs font-bold shrink-0 ${bg}`}
-      >
-        {index}
-        <span className="text-[10px] font-normal uppercase">{tier}</span>
-      </span>
-    )
-  }
 
   // Loading Skeleton State matching exact container geometries
   if (isLoading) {
@@ -319,7 +305,16 @@ export const ReleaseDetail: React.FC = () => {
           <div>
             {/* Breadcrumb Hierarchy with window parameter */}
             <div className="flex items-center gap-1.5 font-mono text-xs text-[#646464] mb-1">
-              <span>{specs.combined_artist}</span>
+              {specs.artist_id ? (
+                <Link
+                  to={`/artists/${specs.artist_id}?window=${window}`}
+                  className="text-[#646464] hover:text-[#121212] transition-colors"
+                >
+                  {specs.combined_artist}
+                </Link>
+              ) : (
+                <span>{specs.combined_artist}</span>
+              )}
               <span>&gt;</span>
               <Link
                 to={`/albums/${specs.album_id}?window=${window}`}
@@ -335,7 +330,17 @@ export const ReleaseDetail: React.FC = () => {
               {specs.album_title} — {specs.variant}
             </h1>
             <div className="text-base text-[#646464] font-medium mt-0.5">
-              {specs.combined_artist} · {specs.retailer_name}
+              {specs.artist_id ? (
+                <Link
+                  to={`/artists/${specs.artist_id}?window=${window}`}
+                  className="text-[#121212] hover:text-[#9B6DFF] transition-colors font-semibold"
+                >
+                  {specs.combined_artist}
+                </Link>
+              ) : (
+                <span>{specs.combined_artist}</span>
+              )}{' '}
+              · {specs.retailer_name}
             </div>
 
             {/* Top-level Last Seen Provenance Chip */}
@@ -377,7 +382,7 @@ export const ReleaseDetail: React.FC = () => {
               <Flame className="w-3.5 h-3.5 text-[#121212]" />
               Hype Index
             </span>
-            {renderTierBadge(hero_kpi.hype_index, hero_kpi.tier)}
+            <TierBadge value={hero_kpi.hype_index} tier={hero_kpi.tier} />
           </div>
           <div>
             <div className="font-mono font-bold text-2xl text-[#121212]">
@@ -439,7 +444,17 @@ export const ReleaseDetail: React.FC = () => {
               <span className="text-sm font-normal text-[#646464]">pts</span>
             </div>
             <div className="font-mono text-[11px] text-[#646464] mt-2 truncate">
-              {hero_kpi.submission_engagement.total_score} upvotes ·{' '}
+              {hero_kpi.submission_engagement.total_score}{' '}
+              {(() => {
+                const r =
+                  hero_kpi.submission_engagement.latest_upvote_ratio ??
+                  hero_kpi.submission_engagement.upvote_ratio
+                if (typeof r === 'number') {
+                  const pct = Math.round(r <= 1 ? r * 100 : r)
+                  return `· ${pct}% · `
+                }
+                return 'upvotes · '
+              })()}
               {hero_kpi.submission_engagement.total_comments} comments
             </div>
           </div>
@@ -461,8 +476,8 @@ export const ReleaseDetail: React.FC = () => {
               {hero_kpi.provenance_summary.linked_submissions_count}{' '}
               <span className="text-sm font-normal text-[#646464]">
                 {hero_kpi.provenance_summary.linked_submissions_count === 1
-                  ? 'Linked Post'
-                  : 'Linked Posts'}
+                  ? 'Linked Submission'
+                  : 'Linked Submissions'}
               </span>
             </div>
             <div className="font-mono text-[11px] text-[#646464] mt-2">
@@ -501,9 +516,18 @@ export const ReleaseDetail: React.FC = () => {
                   <User className="w-3.5 h-3.5 text-[#646464]" />
                   Artist
                 </span>
-                <span className="font-semibold text-[#121212] text-right">
-                  {specs.combined_artist}
-                </span>
+                {specs.artist_id ? (
+                  <Link
+                    to={`/artists/${specs.artist_id}?window=${window}`}
+                    className="font-semibold text-[#121212] text-right hover:text-[#9B6DFF] transition-colors inline-flex items-center gap-1"
+                  >
+                    {specs.combined_artist} →
+                  </Link>
+                ) : (
+                  <span className="font-semibold text-[#121212] text-right">
+                    {specs.combined_artist}
+                  </span>
+                )}
               </div>
 
               {/* Row 2: Parent Album */}

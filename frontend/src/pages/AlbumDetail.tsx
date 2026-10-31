@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, AlertTriangle, ArrowLeft, Disc, Flame, Layers, TrendingUp } from 'lucide-react'
 import { VinylMonogram } from '../components/VinylMonogram'
+import { TierBadge } from '../components/TierBadge'
 import { formatRelativeTime } from '../utils/formatTime'
 
 type WindowType = '24H' | '7D' | '1M'
@@ -119,24 +120,6 @@ export const AlbumDetail: React.FC = () => {
     queryFn: () => fetchAlbumDetail(albumId, window),
     enabled: Boolean(albumId),
   })
-
-  const renderTierBadge = (index: number, tier: TierType) => {
-    const bg =
-      tier === 'high'
-        ? 'bg-[#68D391] text-[#121212]'
-        : tier === 'moderate'
-        ? 'bg-[#ECC94B] text-[#121212]'
-        : 'bg-[#E5E0DA] text-[#646464]'
-
-    return (
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] border-[1.5px] border-[#121212] font-mono text-xs font-bold shrink-0 ${bg}`}
-      >
-        {index}
-        <span className="text-[10px] font-normal uppercase">{tier}</span>
-      </span>
-    )
-  }
 
   // Loading Skeleton State matching exact container geometries
   if (isLoading) {
@@ -297,6 +280,22 @@ export const AlbumDetail: React.FC = () => {
             <div className="text-base text-[#646464] font-medium mt-0.5">
               {data.combined_artist}
             </div>
+            {/* Linked Artist Chips */}
+            {((data.album?.artists && data.album.artists.length > 0) || ((data as any).artists && (data as any).artists.length > 0)) && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-2" data-testid="album-artist-chips">
+                {(data.album?.artists || (data as any).artists).map((art: { artist_id: string; name: string }) => (
+                  <Link
+                    key={art.artist_id}
+                    to={`/artists/${art.artist_id}?window=${window}`}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-[#FAF7F5] border-[1.5px] border-[#121212] rounded-full font-mono text-xs font-bold text-[#121212] hover:bg-[#9B6DFF] transition-colors shadow-brutal-sm"
+                    data-testid={`artist-chip-${art.artist_id}`}
+                  >
+                    <span>{art.name}</span>
+                    <span className="text-[10px] text-[#646464]">→</span>
+                  </Link>
+                ))}
+              </div>
+            )}
             {/* Top-level Last Seen Provenance Chip */}
             <div className="inline-flex items-center gap-1.5 mt-2 bg-white border-[1.5px] border-[#121212] px-2.5 py-0.5 rounded-full font-mono text-[11px] text-[#121212] shadow-brutal-sm">
               <span className="text-[#646464]">LAST SEEN:</span>
@@ -336,7 +335,7 @@ export const AlbumDetail: React.FC = () => {
               <Flame className="w-3.5 h-3.5 text-[#121212]" />
               Hype Index
             </span>
-            {renderTierBadge(hero_kpi.hype_index, hero_kpi.tier)}
+            <TierBadge value={hero_kpi.hype_index} tier={hero_kpi.tier} />
           </div>
           <div>
             <div className="font-mono font-bold text-2xl text-[#121212]">
@@ -420,7 +419,7 @@ export const AlbumDetail: React.FC = () => {
               </span>
             </div>
             <div className="font-mono text-[11px] text-[#646464] mt-2">
-              {hero_kpi.submission_count} Posts · Last seen {formatRelativeTime(data.last_seen_at)}
+              {hero_kpi.submission_count} Submissions · Last seen {formatRelativeTime(data.last_seen_at)}
             </div>
           </div>
         </div>
@@ -692,7 +691,7 @@ export const AlbumDetail: React.FC = () => {
             Child Releases & Pressing Matrix
           </div>
           <span className="font-mono text-xs text-[#646464]">
-            {child_releases.length} Recorded Editions
+            {child_releases.length} Recorded Variants
           </span>
         </div>
         <p className="font-sans text-xs text-[#646464] mb-4">
@@ -747,7 +746,7 @@ export const AlbumDetail: React.FC = () => {
                     </td>
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-1.5">
-                        {renderTierBadge(cr.hype_index, cr.tier)}
+                        <TierBadge value={cr.hype_index} tier={cr.tier} />
                         <div className="w-12 bg-[#E5E0DA] h-1.5 rounded-[1px] overflow-hidden border border-[#121212]">
                           <div
                             className={`h-full ${
@@ -763,7 +762,7 @@ export const AlbumDetail: React.FC = () => {
                       </div>
                     </td>
                     <td className="py-3 px-3 font-mono text-xs text-[#646464]">
-                      {cr.submission_count} posts · {cr.total_score} pts · {cr.total_comments} comments
+                      {cr.submission_count} submissions · {cr.total_score} pts · {cr.total_comments} comments
                     </td>
                     <td className="py-3 px-3 text-right">
                       <Link

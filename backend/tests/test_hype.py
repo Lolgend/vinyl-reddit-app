@@ -7,6 +7,7 @@ from backend.services.hype import (
     calculate_points,
     calculate_raw_hype,
     calculate_velocity,
+    compute_submission_metrics,
     get_hype_tier,
     normalize_cohort_hype,
 )
@@ -179,3 +180,65 @@ class TestHypeTiers:
         assert get_hype_tier(40) == "moderate"
         assert get_hype_tier(39) == "low"
         assert get_hype_tier(0) == "low"
+
+
+class TestComputeSubmissionMetrics:
+    def test_submission_created_inside_window(self):
+        now = datetime(2026, 10, 31, 12, 0, 0, tzinfo=timezone.utc)
+        # Created 2 hours ago inside 24H window
+        created_utc = now - timedelta(hours=2)
+        metrics = compute_submission_metrics(
+            created_utc=created_utc,
+            latest_score=20,
+            latest_num_comments=10,
+            latest_upvote_ratio=0.95,
+            snapshots=[],
+            window="24H",
+            now=now,
+        )
+        assert metrics["velocity"] == 20.0
+        assert metrics["delta_e"] == 40
+        assert metrics["score"] == 20
+        assert metrics["num_comments"] == 10
+        assert metrics["created_utc"] == created_utc
+        assert metrics["raw_hype"] > 0.0
+
+    def test_submission_created_before_window_with_snapshots(self):
+        now = datetime(2026, 10, 31, 12, 0, 0, tzinfo=timezone.utc)
+        t0 = now - timedelta(hours=24)
+        created_utc = now - timedelta(hours=48)
+        # Snapshots: one before t0 (score=10, c=2 => E=14), one inside window (score=30, c=5 => E=40)
+        snapshots = [
+            {"captured_at": t0 - timedelta(hours=2), "score": 10, "num_comments": 2},
+            {"captured_at": now - timedelta(hours=1), "score": 30, "num_comments": 5},
+        ]
+        metrics = compute_submission_metrics(
+            created_utc=created_utc,
+            latest_score=30,
+            latest_num_comments=5,
+            latest_upvote_ratio=1.0,
+            snapshots=snapshots,
+            window="24H",
+            now=now,
+        )
+        # delta_e = 40 - 14 = 26
+        assert metrics["delta_e"] == 26
+        # t_base is anchor snap before t0 (26h ago)
+        # elapsed = 26h => velocity = round(26 / 26.0, 1) = 1.0
+        assert metrics["velocity"] == 1.0
+
+    def test_submission_fifteen_minute_floor(self):
+        now = datetime(2026, 10, 31, 12, 0, 0, tzinfo=timezone.utc)
+        created_utc = now - timedelta(minutes=5)
+        metrics = compute_submission_metrics(
+            created_utc=created_utc,
+            latest_score=10,
+            latest_num_comments=0,
+            latest_upvote_ratio=1.0,
+            snapshots=[],
+            window="24H",
+            now=now,
+        )
+        # 10 points / 0.25 hours = 40.0 pts/hr
+        assert metrics["velocity"] == 40.0
+

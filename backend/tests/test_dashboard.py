@@ -34,6 +34,7 @@ class TestDashboardService:
             assert top_a.hype_velocity >= 0.0
             assert top_a.tier in ("high", "moderate", "low")
             assert top_a.release_count >= 1
+            assert top_a.submission_count >= 0
             assert top_a.monogram_key
 
         # Check top_releases schema
@@ -53,6 +54,8 @@ class TestDashboardService:
             new_r = data.newly_added[0]
             assert new_r.release_id
             assert new_r.first_seen_at <= now
+            assert new_r.latest_score >= 0
+            assert 0 <= new_r.hype_index <= 100
 
         # Check live_feed
         feed_item = data.live_feed[0]

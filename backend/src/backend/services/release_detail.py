@@ -32,9 +32,7 @@ from backend.services.hype import (
     WINDOW_CONFIG,
     WindowType,
     calculate_hype_index,
-    calculate_points,
-    calculate_raw_hype,
-    calculate_velocity,
+    compute_submission_metrics,
     get_hype_tier,
 )
 from backend.services.timeseries import (
@@ -184,55 +182,16 @@ def get_release_detail(
         if s_id in submission_metrics:
             continue
 
-        s_created_utc = row.created_utc
-        snaps = snapshots_by_sub.get(s_id, [])
-
-        # Baseline Anchor (E_base, t_base)
-        if s_created_utc >= t0:
-            e_base = 0
-            t_base = s_created_utc
-        else:
-            snaps_before_t0 = [sn for sn in snaps if sn["captured_at"] <= t0]
-            if snaps_before_t0:
-                anchor_snap = snaps_before_t0[-1]
-                e_base = calculate_points(anchor_snap["score"], anchor_snap["num_comments"])
-                t_base = anchor_snap["captured_at"]
-            else:
-                snaps_in_window = [sn for sn in snaps if sn["captured_at"] > t0]
-                if snaps_in_window:
-                    anchor_snap = snaps_in_window[0]
-                    e_base = calculate_points(anchor_snap["score"], anchor_snap["num_comments"])
-                    t_base = anchor_snap["captured_at"]
-                else:
-                    e_base = calculate_points(row.latest_score, row.latest_num_comments)
-                    t_base = s_created_utc
-
-        # Current state (E_curr)
-        if snaps:
-            latest_snap = snaps[-1]
-            e_curr = calculate_points(latest_snap["score"], latest_snap["num_comments"])
-        else:
-            e_curr = calculate_points(row.latest_score, row.latest_num_comments)
-
-        delta_e = max(0, e_curr - e_base)
-        v_s = calculate_velocity(delta_e, t_base, now)
-        h_s = calculate_raw_hype(
-            velocity=v_s,
-            delta_e=delta_e,
-            created_utc=s_created_utc,
-            upvote_ratio=row.latest_upvote_ratio,
+        submission_metrics[s_id] = compute_submission_metrics(
+            created_utc=row.created_utc,
+            latest_score=row.latest_score,
+            latest_num_comments=row.latest_num_comments,
+            latest_upvote_ratio=row.latest_upvote_ratio,
+            snapshots=snapshots_by_sub.get(s_id, []),
             window=window,
             now=now,
+            t0=t0,
         )
-
-        submission_metrics[s_id] = {
-            "velocity": v_s,
-            "delta_e": delta_e,
-            "raw_hype": h_s,
-            "created_utc": s_created_utc,
-            "score": row.latest_score,
-            "num_comments": row.latest_num_comments,
-        }
 
     # Compute raw hypes across all releases for cohort scaling
     release_raw_hypes: dict[str, float] = {}
@@ -311,6 +270,12 @@ def get_release_detail(
     variant_val = target_row.variant if target_row.variant and target_row.variant.strip() else "Standard Pressing"
     retailer_val = target_row.retailer_name if target_row.retailer_name and target_row.retailer_name.strip() else "Wide / Unspecified"
 
+    art_row = session.execute(
+        text("SELECT artist_id FROM release_artists WHERE release_id = :r_id LIMIT 1"),
+        {"r_id": rel_id_str},
+    ).fetchone()
+    artist_id = str(art_row.artist_id) if art_row else None
+
     specs = ReleasePhysicalSpecs(
         release_id=rel_id_str,
         album_id=target_album_id,
@@ -321,6 +286,7 @@ def get_release_detail(
         first_seen_at=first_seen_at,
         last_seen_at=last_seen_at,
         monogram_key=rel_id_str,
+        artist_id=artist_id,
     )
 
     parent_album = ParentAlbumInfo(
@@ -329,11 +295,24 @@ def get_release_detail(
         release_count=parent_album_dict["release_count"],
     )
 
+    upvote_ratios = [
+        s["latest_upvote_ratio"]
+        for s in target_subs_list
+        if s.get("latest_upvote_ratio") is not None
+    ]
+    avg_upvote_ratio = (
+        round(sum(upvote_ratios) / len(upvote_ratios), 2)
+        if upvote_ratios
+        else None
+    )
+
     submission_engagement = SubmissionEngagement(
         points_gain=points_gain,
         total_score=total_score,
         total_comments=total_comments,
         submission_count=len(target_subs_list),
+        upvote_ratio=avg_upvote_ratio,
+        latest_upvote_ratio=avg_upvote_ratio,
     )
 
     provenance_summary = ProvenanceSummary(

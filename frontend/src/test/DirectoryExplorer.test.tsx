@@ -288,6 +288,35 @@ describe('DirectoryExplorer Page', () => {
     })
   })
 
+  it('renders attribution filter pills on Albums tab and filters when clicked', async () => {
+    renderComponent(['/directory?tab=albums'])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('attribution-filter-solo')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('attribution-filter-solo'))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('attribution=solo')
+      )
+    })
+  })
+
+  it('supports sort_by and sort_order aliases in URL parameters', async () => {
+    renderComponent(['/directory?sort_by=submissions&sort_order=asc'])
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('sort=submissions')
+      )
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('order=asc')
+      )
+    })
+  })
+
   it('supports searching via command bar input', async () => {
     renderComponent()
 
@@ -330,7 +359,7 @@ describe('DirectoryExplorer Page', () => {
       })
     )
 
-    renderComponent(['/directory?q=UnknownArtist&tier=high&retailer=Rough%20Trade'])
+    renderComponent(['/directory?q=UnknownArtist&tier=high&retailer=Rough%20Trade&attribution=solo'])
 
     await waitFor(() => {
       expect(screen.getByTestId('directory-empty-state')).toBeInTheDocument()
@@ -338,6 +367,7 @@ describe('DirectoryExplorer Page', () => {
       expect(screen.getByTestId('filter-pill-query')).toBeInTheDocument()
       expect(screen.getByTestId('filter-pill-tier')).toBeInTheDocument()
       expect(screen.getByTestId('filter-pill-retailer')).toBeInTheDocument()
+      expect(screen.getByTestId('filter-pill-attribution')).toBeInTheDocument()
       expect(screen.getByTestId('reset-filters-btn')).toBeInTheDocument()
     })
 
