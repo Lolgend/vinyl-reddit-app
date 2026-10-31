@@ -106,7 +106,7 @@ export const AlbumDetail: React.FC = () => {
   const { albumId = '' } = useParams<{ albumId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const rawWindow = searchParams.get('window')
+  const rawWindow = searchParams.get('window')?.toUpperCase()
   const window: WindowType =
     rawWindow === '7D' || rawWindow === '1M' ? rawWindow : '24H'
 
@@ -138,7 +138,7 @@ export const AlbumDetail: React.FC = () => {
     )
   }
 
-  // Loading Skeleton State
+  // Loading Skeleton State matching exact container geometries
   if (isLoading) {
     return (
       <div className="flex flex-col gap-6" data-testid="screen-album-detail-loading">
@@ -147,19 +147,50 @@ export const AlbumDetail: React.FC = () => {
           <div className="flex flex-col gap-2">
             <div className="w-64 h-8 bg-[#E5E0DA] rounded animate-pulse" />
             <div className="w-40 h-4 bg-[#E5E0DA] rounded animate-pulse" />
+            <div className="w-48 h-6 bg-[#E5E0DA] rounded-full animate-pulse mt-1" />
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div
               key={i}
-              className="h-24 bg-white border-[1.5px] border-[#121212] rounded-[6px] p-4 animate-pulse"
-            />
+              className="h-28 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
+            >
+              <div className="flex justify-between">
+                <div className="w-24 h-3.5 bg-[#E5E0DA] rounded animate-pulse" />
+                <div className="w-12 h-4 bg-[#E5E0DA] rounded animate-pulse" />
+              </div>
+              <div className="w-20 h-7 bg-[#E5E0DA] rounded animate-pulse" />
+              <div className="w-full h-2 bg-[#E5E0DA] rounded animate-pulse" />
+            </div>
           ))}
         </div>
         <div className="grid grid-cols-12 gap-5">
-          <div className="col-span-12 lg:col-span-8 h-80 bg-white border-[1.5px] border-[#121212] rounded-[6px] animate-pulse" />
-          <div className="col-span-12 lg:col-span-4 h-80 bg-white border-[1.5px] border-[#121212] rounded-[6px] animate-pulse" />
+          <div className="col-span-12 lg:col-span-8 h-80 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col justify-between">
+            <div className="w-48 h-6 bg-[#E5E0DA] rounded animate-pulse" />
+            <div className="w-full h-48 bg-[#E5E0DA] rounded animate-pulse" />
+            <div className="w-64 h-4 bg-[#E5E0DA] rounded animate-pulse" />
+          </div>
+          <div className="col-span-12 lg:col-span-4 h-80 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col justify-between">
+            <div className="w-32 h-6 bg-[#E5E0DA] rounded animate-pulse" />
+            <div className="flex flex-col gap-3">
+              {Array.from({ length: 3 }).map((_, j) => (
+                <div key={j} className="flex flex-col gap-1.5">
+                  <div className="w-full h-3 bg-[#E5E0DA] rounded animate-pulse" />
+                  <div className="w-full h-2.5 bg-[#E5E0DA] rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+            <div className="w-full h-3 bg-[#E5E0DA] rounded animate-pulse" />
+          </div>
+        </div>
+        <div className="h-64 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col justify-between">
+          <div className="w-48 h-6 bg-[#E5E0DA] rounded animate-pulse" />
+          <div className="flex flex-col gap-2">
+            {Array.from({ length: 3 }).map((_, k) => (
+              <div key={k} className="w-full h-10 bg-[#E5E0DA] rounded animate-pulse" />
+            ))}
+          </div>
         </div>
       </div>
     )
@@ -183,6 +214,7 @@ export const AlbumDetail: React.FC = () => {
           <button
             onClick={() => refetch()}
             className="px-4 py-2 bg-[#121212] text-white font-mono text-xs font-bold rounded-[4px] shadow-brutal-sm hover:bg-[#9B6DFF] hover:text-[#121212] transition-colors"
+            data-testid="album-retry-btn"
           >
             Retry
           </button>
@@ -192,7 +224,10 @@ export const AlbumDetail: React.FC = () => {
   }
 
   const { hero_kpi, time_series, submission_markers, share_of_demand, child_releases } = data
-  const hasActivity = hero_kpi.points_gain > 0 || time_series.some((b) => b.cumulative_points > 0)
+  const hasActivity =
+    (hero_kpi.points_gain ?? 0) > 0 ||
+    (hero_kpi.reddit_demand?.points_gain ?? 0) > 0 ||
+    time_series.some((b) => b.velocity_pts_per_hr > 0)
 
   // Chart dimensions & calculations
   const chartWidth = 740
@@ -206,7 +241,11 @@ export const AlbumDetail: React.FC = () => {
   // Build SVG stepped line path
   let stepPathD = ''
   let areaPathD = ''
-  if (numBuckets > 0) {
+  if (!hasActivity) {
+    // When zero window engagement exists in active window W: render a flat baseline at 0
+    stepPathD = `M ${padLeft} ${padTop + chartHeight} L ${padLeft + chartWidth} ${padTop + chartHeight}`
+    areaPathD = ''
+  } else if (numBuckets > 0) {
     const bucketWidth = chartWidth / numBuckets
     const firstY = padTop + chartHeight - (time_series[0].cumulative_points / maxPts) * chartHeight
     stepPathD = `M ${padLeft} ${firstY}`
@@ -232,10 +271,10 @@ export const AlbumDetail: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-6" data-testid="screen-album-detail">
-      {/* Back Link */}
+      {/* Back Link preserving window parameter */}
       <div>
         <Link
-          to="/directory?tab=albums"
+          to={`/directory?tab=albums&window=${window}`}
           className="inline-flex items-center gap-1.5 font-mono text-xs text-[#646464] hover:text-[#121212] transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -409,8 +448,11 @@ export const AlbumDetail: React.FC = () => {
 
             {/* Zero-activity Mono Callout Banner */}
             {!hasActivity && (
-              <div className="mb-4 bg-[#FAF7F5] border-[1.5px] border-dashed border-[#121212] p-3 text-center rounded-[4px] font-mono text-xs text-[#646464]">
-                NO NEW ACTIVITY IN {window} — LAST SEEN {formatRelativeTime(data.last_seen_at)}
+              <div
+                className="mb-4 bg-[#FAF7F5] border-[1.5px] border-dashed border-[#121212] p-3 text-center rounded-[4px] font-mono text-xs text-[#646464]"
+                data-testid="zero-activity-callout"
+              >
+                NO NEW ACTIVITY IN {window} — LAST SEEN {lastSeenDate}
               </div>
             )}
 
@@ -423,7 +465,7 @@ export const AlbumDetail: React.FC = () => {
                 {/* Background Grid Lines */}
                 {[0, 0.5, 1].map((pct) => {
                   const y = padTop + chartHeight - pct * chartHeight
-                  const ptsVal = Math.round(pct * maxPts)
+                  const ptsVal = hasActivity ? Math.round(pct * maxPts) : 0
                   return (
                     <g key={pct}>
                       <line
@@ -447,32 +489,33 @@ export const AlbumDetail: React.FC = () => {
                 })}
 
                 {/* Shaded Area under Stepped Line */}
-                {areaPathD && (
+                {hasActivity && areaPathD && (
                   <path d={areaPathD} fill="#9B6DFF" fillOpacity="0.08" />
                 )}
 
                 {/* Stepped Velocity Bars (Secondary metric visual) */}
-                {time_series.map((b, i) => {
-                  const bWidth = chartWidth / numBuckets
-                  const x = padLeft + i * bWidth
-                  const barHeight = (b.velocity_pts_per_hr / maxVel) * (chartHeight * 0.4)
-                  const y = padTop + chartHeight - barHeight
-                  return (
-                    <rect
-                      key={`vel-${i}`}
-                      x={x + 1}
-                      y={y}
-                      width={Math.max(1, bWidth - 2)}
-                      height={barHeight}
-                      fill="#9B6DFF"
-                      fillOpacity="0.25"
-                    >
-                      <title>{`Velocity: +${b.velocity_pts_per_hr} pts/hr`}</title>
-                    </rect>
-                  )
-                })}
+                {hasActivity &&
+                  time_series.map((b, i) => {
+                    const bWidth = chartWidth / numBuckets
+                    const x = padLeft + i * bWidth
+                    const barHeight = (b.velocity_pts_per_hr / maxVel) * (chartHeight * 0.4)
+                    const y = padTop + chartHeight - barHeight
+                    return (
+                      <rect
+                        key={`vel-${i}`}
+                        x={x + 1}
+                        y={y}
+                        width={Math.max(1, bWidth - 2)}
+                        height={barHeight}
+                        fill="#9B6DFF"
+                        fillOpacity="0.25"
+                      >
+                        <title>{`Velocity: +${b.velocity_pts_per_hr} pts/hr`}</title>
+                      </rect>
+                    )
+                  })}
 
-                {/* Stepped Line */}
+                {/* Stepped Line (Flat baseline at 0 if no activity) */}
                 {stepPathD && (
                   <path
                     d={stepPathD}
@@ -484,37 +527,38 @@ export const AlbumDetail: React.FC = () => {
                 )}
 
                 {/* Vertical Dashed Submission Event Markers */}
-                {submission_markers.map((marker, idx) => {
-                  if (numBuckets === 0) return null
-                  const t0 = new Date(time_series[0].bucket_start).getTime()
-                  const tN = new Date(time_series[numBuckets - 1].bucket_end).getTime()
-                  const tm = new Date(marker.timestamp).getTime()
-                  const ratio = Math.max(0, Math.min(1, (tm - t0) / Math.max(1, tN - t0)))
-                  const xm = padLeft + ratio * chartWidth
+                {hasActivity &&
+                  submission_markers.map((marker, idx) => {
+                    if (numBuckets === 0) return null
+                    const t0 = new Date(time_series[0].bucket_start).getTime()
+                    const tN = new Date(time_series[numBuckets - 1].bucket_end).getTime()
+                    const tm = new Date(marker.timestamp).getTime()
+                    const ratio = Math.max(0, Math.min(1, (tm - t0) / Math.max(1, tN - t0)))
+                    const xm = padLeft + ratio * chartWidth
 
-                  return (
-                    <g key={`marker-${idx}`} className="cursor-pointer group">
-                      <line
-                        x1={xm}
-                        y1={padTop}
-                        x2={xm}
-                        y2={padTop + chartHeight}
-                        stroke="#F56565"
-                        strokeWidth="1.5"
-                        strokeDasharray="3 3"
-                      />
-                      <circle cx={xm} cy={padTop + 4} r="4" fill="#F56565" />
-                      <title>{`${marker.title} (${formatRelativeTime(marker.timestamp)})`}</title>
-                      <text
-                        x={xm + 4}
-                        y={padTop + 14}
-                        className="font-mono text-[9px] fill-[#F56565] font-bold"
-                      >
-                        {marker.title.slice(0, 24)}...
-                      </text>
-                    </g>
-                  )
-                })}
+                    return (
+                      <g key={`marker-${idx}`} className="cursor-pointer group">
+                        <line
+                          x1={xm}
+                          y1={padTop}
+                          x2={xm}
+                          y2={padTop + chartHeight}
+                          stroke="#F56565"
+                          strokeWidth="1.5"
+                          strokeDasharray="3 3"
+                        />
+                        <circle cx={xm} cy={padTop + 4} r="4" fill="#F56565" />
+                        <title>{`${marker.title} (${formatRelativeTime(marker.timestamp)})`}</title>
+                        <text
+                          x={xm + 4}
+                          y={padTop + 14}
+                          className="font-mono text-[9px] fill-[#F56565] font-bold"
+                        >
+                          {marker.title.slice(0, 24)}...
+                        </text>
+                      </g>
+                    )
+                  })}
 
                 {/* X Axis Baseline */}
                 <line
@@ -723,7 +767,7 @@ export const AlbumDetail: React.FC = () => {
                     </td>
                     <td className="py-3 px-3 text-right">
                       <Link
-                        to={`/releases/${cr.release_id}`}
+                        to={`/releases/${cr.release_id}?window=${window}`}
                         className="inline-block font-mono text-xs font-bold text-[#121212] bg-[#FAF7F5] border-[1.5px] border-[#121212] px-2.5 py-1 rounded-[4px] hover:bg-[#9B6DFF] hover:text-[#121212] transition-colors shadow-brutal-sm active:translate-x-0.5 active:translate-y-0.5"
                       >
                         View Release →

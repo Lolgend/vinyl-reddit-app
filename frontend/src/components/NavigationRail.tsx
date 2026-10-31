@@ -6,7 +6,7 @@ import { VinylMonogram } from './VinylMonogram'
 export const NavigationRail: React.FC = () => {
   const location = useLocation()
   const searchParams = new URLSearchParams(location.search)
-  const windowParam = searchParams.get('window')
+  const windowParam = searchParams.get('window') || '24H'
   const activeTab = searchParams.get('tab')
 
   // Helper to preserve window query parameter across navigation
@@ -32,7 +32,11 @@ export const NavigationRail: React.FC = () => {
     >
       <div className="flex flex-col">
         {/* Brand Header */}
-        <div className="p-5 border-b border-[#222226] flex items-center gap-3">
+        <Link
+          to={buildHref('/')}
+          className="p-5 border-b border-[#222226] flex items-center gap-3 hover:opacity-90 transition-opacity"
+          data-testid="brand-header-link"
+        >
           <VinylMonogram name="Vinyl Demand" entityId="brand-monogram" size={36} />
           <div className="flex flex-col leading-tight">
             <span className="font-grotesk font-bold text-[15px] tracking-wider text-white">
@@ -42,7 +46,7 @@ export const NavigationRail: React.FC = () => {
               r/vinylreleases LEDGER
             </span>
           </div>
-        </div>
+        </Link>
 
         {/* Primary Navigation */}
         <nav className="p-4 flex flex-col gap-6">

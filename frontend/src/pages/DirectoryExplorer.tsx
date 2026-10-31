@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRight, ChevronLeft, ChevronRight, LayoutGrid, List, Search, X } from 'lucide-react'
+import { AlertTriangle, ArrowRight, ChevronLeft, ChevronRight, LayoutGrid, List, Search, X } from 'lucide-react'
 import { VinylMonogram } from '../components/VinylMonogram'
 
 type DirectoryTab = 'releases' | 'albums' | 'artists'
@@ -509,27 +509,104 @@ export const DirectoryExplorer: React.FC = () => {
       {/* Error State */}
       {isError && (
         <div
-          className="bg-[#FED7D7] border-[1.5px] border-[#F56565] rounded-[6px] shadow-brutal-md p-4 text-[#C53030] flex items-center justify-between"
+          className="bg-[#F56565] border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-6 text-[#121212] flex flex-col gap-4"
           data-testid="directory-error-banner"
         >
-          <div className="font-mono text-xs font-bold">
-            Failed to load {activeTab} data. Please check connection and try again.
+          <div className="flex items-center gap-2 font-grotesk font-bold text-lg">
+            <AlertTriangle className="w-5 h-5 text-[#121212]" />
+            Failed to load {activeTab} data
           </div>
-          <button
-            onClick={() => refetch()}
-            className="px-3 py-1 bg-white border border-[#F56565] rounded text-xs font-mono font-bold hover:bg-[#FFF5F5]"
-          >
-            Retry
-          </button>
+          <p className="font-sans text-sm">
+            Please check your connection and try again.
+          </p>
+          <div>
+            <button
+              onClick={() => refetch()}
+              className="px-4 py-2 bg-[#121212] text-white font-mono text-xs font-bold rounded-[4px] shadow-brutal-sm hover:bg-[#9B6DFF] hover:text-[#121212] transition-colors"
+              data-testid="directory-retry-btn"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Loading Skeleton */}
+      {/* Loading Skeleton matching exact container geometries */}
       {isLoading && (
-        <div className="flex flex-col gap-4" data-testid="directory-skeleton">
-          <div className="h-64 bg-[#E5E0DA] border-[1.5px] border-[#121212] rounded-[6px] animate-pulse flex items-center justify-center font-mono text-xs text-[#646464]">
-            LOADING {activeTab.toUpperCase()} LEDGER...
-          </div>
+        <div data-testid="directory-skeleton">
+          {activeTab === 'releases' && viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" data-testid="releases-grid-skeleton">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={`grid-skel-${i}`}
+                  className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col justify-between h-[280px]"
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 bg-[#E5E0DA] border-[1.5px] border-[#121212] rounded-full animate-pulse" />
+                        <div className="flex flex-col gap-1.5">
+                          <div className="w-32 h-4 bg-[#E5E0DA] rounded animate-pulse" />
+                          <div className="w-24 h-3 bg-[#E5E0DA] rounded animate-pulse" />
+                        </div>
+                      </div>
+                      <div className="w-16 h-6 bg-[#E5E0DA] rounded-[4px] border border-[#121212] animate-pulse" />
+                    </div>
+                    <div className="flex gap-2 mb-4">
+                      <div className="w-24 h-5 bg-[#E5E0DA] rounded animate-pulse" />
+                      <div className="w-20 h-5 bg-[#E5E0DA] rounded animate-pulse" />
+                    </div>
+                    <div className="bg-[#FAF7F5] border border-[#E5E0DA] rounded-[4px] p-3 mb-4 flex flex-col gap-2">
+                      <div className="w-full h-3 bg-[#E5E0DA] rounded animate-pulse" />
+                      <div className="w-full h-1.5 bg-[#E5E0DA] rounded animate-pulse" />
+                      <div className="w-36 h-3 bg-[#E5E0DA] rounded animate-pulse" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-2 border-t border-[#E5E0DA]">
+                    <div className="flex-1 h-8 bg-[#E5E0DA] rounded-[4px] border border-[#121212] animate-pulse" />
+                    <div className="w-20 h-8 bg-[#E5E0DA] rounded-[4px] border border-[#121212] animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md overflow-x-auto" data-testid="table-skeleton">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#F7F3F0] border-b-[1.5px] border-[#121212] font-mono text-[11px] font-bold text-[#121212] uppercase tracking-wider">
+                    <th className="py-3 px-4">Item & Artist</th>
+                    <th className="py-3 px-4">Spec / Footprint</th>
+                    <th className="py-3 px-4">Distributor</th>
+                    <th className="py-3 px-4 w-36">Hype Index</th>
+                    <th className="py-3 px-4">Velocity</th>
+                    <th className="py-3 px-4">Metrics</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E5E0DA]">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={`tbl-skel-${i}`} className="h-[60px]">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-[#E5E0DA] border border-[#121212] animate-pulse" />
+                          <div className="flex flex-col gap-1">
+                            <div className="w-32 h-3.5 bg-[#E5E0DA] rounded animate-pulse" />
+                            <div className="w-20 h-2.5 bg-[#E5E0DA] rounded animate-pulse" />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4"><div className="w-24 h-5 bg-[#E5E0DA] rounded animate-pulse" /></td>
+                      <td className="py-3 px-4"><div className="w-20 h-4 bg-[#E5E0DA] rounded animate-pulse" /></td>
+                      <td className="py-3 px-4"><div className="w-24 h-4 bg-[#E5E0DA] rounded animate-pulse" /></td>
+                      <td className="py-3 px-4"><div className="w-16 h-4 bg-[#E5E0DA] rounded animate-pulse" /></td>
+                      <td className="py-3 px-4"><div className="w-28 h-4 bg-[#E5E0DA] rounded animate-pulse" /></td>
+                      <td className="py-3 px-4 text-right"><div className="w-20 h-6 bg-[#E5E0DA] rounded border border-[#121212] ml-auto animate-pulse" /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -540,10 +617,29 @@ export const DirectoryExplorer: React.FC = () => {
           data-testid="directory-empty-state"
         >
           <div className="font-mono text-lg font-bold text-[#121212]">0 MATCHING RECORDS</div>
-          <p className="font-sans text-xs text-[#646464] max-w-md">
-            No records match the current filters in the {activeWindow} timeframe. Try resetting filters
-            or clearing search parameters.
-          </p>
+          <div className="flex items-center justify-center gap-2 flex-wrap max-w-lg mt-1">
+            {urlQuery && (
+              <span className="inline-block bg-[#F7F3F0] border border-[#121212] px-2.5 py-0.5 rounded font-mono text-xs text-[#121212]" data-testid="filter-pill-query">
+                Search: &quot;{urlQuery}&quot;
+              </span>
+            )}
+            {activeTier !== 'all' && (
+              <span className="inline-block bg-[#F7F3F0] border border-[#121212] px-2.5 py-0.5 rounded font-mono text-xs text-[#121212]" data-testid="filter-pill-tier">
+                Tier: {activeTier.toUpperCase()}
+              </span>
+            )}
+            {activeRetailer && (
+              <span className="inline-block bg-[#F7F3F0] border border-[#121212] px-2.5 py-0.5 rounded font-mono text-xs text-[#121212]" data-testid="filter-pill-retailer">
+                Retailer: {activeRetailer}
+              </span>
+            )}
+            {!urlQuery && activeTier === 'all' && !activeRetailer && (
+              <p className="font-sans text-xs text-[#646464] max-w-md">
+                No records match the current filters in the {activeWindow} timeframe. Try resetting filters
+                or clearing search parameters.
+              </p>
+            )}
+          </div>
           <button
             onClick={handleResetFilters}
             className="bg-[#9B6DFF] text-[#121212] font-mono font-bold text-xs px-4 py-2 rounded-[4px] border-[1.5px] border-[#121212] shadow-brutal-sm hover:translate-x-[-1px] hover:translate-y-[-1px] mt-2 transition-transform"
@@ -915,7 +1011,7 @@ export const DirectoryExplorer: React.FC = () => {
                         +{art.hype_velocity} pts/hr
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex flex-col">
+                        <div className="flex items-col">
                           {renderTierBadge(art.hype_index, art.tier)}
                           {renderTierBar(art.hype_index, art.tier)}
                         </div>

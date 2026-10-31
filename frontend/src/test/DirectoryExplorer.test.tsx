@@ -180,6 +180,17 @@ describe('DirectoryExplorer Page', () => {
     })
   })
 
+  it('renders structural loading skeleton matching exact container geometries during fetch', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => new Promise(() => {}))
+    )
+
+    renderComponent()
+
+    expect(screen.getByTestId('directory-skeleton')).toBeInTheDocument()
+  })
+
   it('handles null variant and retailer fallbacks correctly', async () => {
     renderComponent()
 
@@ -295,7 +306,7 @@ describe('DirectoryExplorer Page', () => {
     })
   })
 
-  it('renders empty state when total_items is 0 and handles reset filters', async () => {
+  it('renders empty state with active filter pills and handles reset filters', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((url: string) => {
@@ -319,15 +330,39 @@ describe('DirectoryExplorer Page', () => {
       })
     )
 
-    renderComponent()
+    renderComponent(['/directory?q=UnknownArtist&tier=high&retailer=Rough%20Trade'])
 
     await waitFor(() => {
       expect(screen.getByTestId('directory-empty-state')).toBeInTheDocument()
       expect(screen.getByText('0 MATCHING RECORDS')).toBeInTheDocument()
+      expect(screen.getByTestId('filter-pill-query')).toBeInTheDocument()
+      expect(screen.getByTestId('filter-pill-tier')).toBeInTheDocument()
+      expect(screen.getByTestId('filter-pill-retailer')).toBeInTheDocument()
       expect(screen.getByTestId('reset-filters-btn')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByTestId('reset-filters-btn'))
+  })
+
+  it('renders Coral Alert banner and retry button on fetch failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/v1/directory/counts') || url.includes('/api/v1/directory/retailers')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+        }
+        return Promise.reject(new Error('Network error'))
+      })
+    )
+
+    renderComponent()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('directory-error-banner')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/Failed to load releases data/i)).toBeInTheDocument()
+    expect(screen.getByTestId('directory-retry-btn')).toBeInTheDocument()
   })
 
   it('displays pagination controls and handles page navigation', async () => {
