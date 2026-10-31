@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-delegated: Next.js (App Router) + TypeScript + Tailwind CSS — chosen to support data-dense retailer dashboards, server-side Reddit data ingestion and scheduled jobs, and fast filtering/watchlist workflows in a single web codebase.
+Vite + React 19 + TypeScript + Tailwind CSS frontend paired with a Python (`uv`) HTTP API backend reading from the PostgreSQL + `pgvector` database populated by `..\reddit-scrape`.
 
 ## Users
 

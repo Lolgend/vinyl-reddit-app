@@ -36,18 +36,18 @@ _Avoid_: Post, thread, article, listing
 A point-in-time timestamped observation of a submission's engagement metrics (`score`, `upvote_ratio`, `num_comments`, `captured_at`) used to construct time-series velocity curves.
 _Avoid_: Metric check, poll log, vote record
 
-**Release Event**:
-The commercial availability classification of a release derived from submission flairs and title tags, categorized as New Release, Pre-Order, Restock, Repress, or Sold Out.
-_Avoid_: Status, category, drop type
-
 **Hype Velocity**:
-The instantaneous or short-window rate of change of community engagement metrics ($\Delta \text{score}/\Delta t$, $\Delta \text{comments}/\Delta t$).
-_Avoid_: Popularity speed, vote rate, hype momentum
+The window-scoped rate of change of composite community engagement (upvotes and weighted comments per hour) across an active `Hype Window`, aggregated across the deduplicated union of `Submission`s linked to a `Release`, `Album`, or `Artist`.
+_Avoid_: Popularity speed, vote rate, hype momentum, peak hype velocity
 
 **Hype Index**:
-A normalized composite score ($0–100$) that balances engagement velocity with freshness decay over time.
+A normalized composite score ($0–100$) that balances `Hype Velocity`, cumulative window engagement, and upvote ratio with window-scaled freshness decay over time.
 _Avoid_: Trending score, rank score, hotness
 
 **Hype Window**:
-A defined historical activity window (`24H`, `7D`, `1M` / `30D`) across which `Submission Snapshot` deltas and newly posted `Submission`s are evaluated to filter the **Top Albums** and **Top Releases** leaderboards.
+A defined historical activity window (`24H`, `7D`, `1M` / `30D`) across which `Submission Snapshot` deltas and newly posted `Submission`s are evaluated to compute `Hype Velocity`, `Hype Index`, and stepped time-series trajectories across leaderboards, directory views, and entity detail screens.
 _Avoid_: Timeframe, leader period, date range
+
+**Last Seen**:
+The timestamp of the most recent `Submission` mentioning an `Album`, `Release`, or `Artist` on `r/vinylreleases`, displayed at the top level of entity detail views to contextualize low or zero `Hype Index` readings when no recent window activity has occurred.
+_Avoid_: Last scraped, last updated, last polled
