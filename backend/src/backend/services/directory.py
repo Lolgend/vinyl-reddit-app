@@ -34,9 +34,7 @@ from backend.services.hype import (
     WINDOW_CONFIG,
     WindowType,
     calculate_hype_index,
-    calculate_points,
-    calculate_raw_hype,
-    calculate_velocity,
+    compute_submission_metrics,
     get_hype_tier,
 )
 
@@ -122,54 +120,16 @@ def _compute_directory_cohorts(
         if s_id in submission_metrics:
             continue
 
-        s_created_utc = row.created_utc
-        snaps = snapshots_by_sub.get(s_id, [])
-
-        # Baseline Anchor (E_base, t_base)
-        if s_created_utc >= t0:
-            e_base = 0
-            t_base = s_created_utc
-        else:
-            snaps_before_t0 = [sn for sn in snaps if sn.captured_at <= t0]
-            if snaps_before_t0:
-                anchor_snap = snaps_before_t0[-1]
-                e_base = calculate_points(anchor_snap.score, anchor_snap.num_comments)
-                t_base = anchor_snap.captured_at
-            else:
-                snaps_in_window = [sn for sn in snaps if sn.captured_at > t0]
-                if snaps_in_window:
-                    anchor_snap = snaps_in_window[0]
-                    e_base = calculate_points(anchor_snap.score, anchor_snap.num_comments)
-                    t_base = anchor_snap.captured_at
-                else:
-                    e_base = calculate_points(row.latest_score, row.latest_num_comments)
-                    t_base = s_created_utc
-
-        if snaps:
-            latest_snap = snaps[-1]
-            e_curr = calculate_points(latest_snap.score, latest_snap.num_comments)
-        else:
-            e_curr = calculate_points(row.latest_score, row.latest_num_comments)
-
-        delta_e = max(0, e_curr - e_base)
-        v_s = calculate_velocity(delta_e, t_base, now)
-        h_s = calculate_raw_hype(
-            velocity=v_s,
-            delta_e=delta_e,
-            created_utc=s_created_utc,
-            upvote_ratio=row.latest_upvote_ratio,
+        submission_metrics[s_id] = compute_submission_metrics(
+            created_utc=row.created_utc,
+            latest_score=row.latest_score,
+            latest_num_comments=row.latest_num_comments,
+            latest_upvote_ratio=row.latest_upvote_ratio,
+            snapshots=snapshots_by_sub.get(s_id, []),
             window=window,
             now=now,
+            t0=t0,
         )
-
-        submission_metrics[s_id] = {
-            "velocity": v_s,
-            "delta_e": delta_e,
-            "raw_hype": h_s,
-            "created_utc": s_created_utc,
-            "score": row.latest_score,
-            "num_comments": row.latest_num_comments,
-        }
 
     # 5. Fetch artist linkages and counts
     art_link_rows = session.execute(
@@ -278,6 +238,7 @@ def _compute_directory_cohorts(
     artists_map: dict[str, dict[str, Any]] = {}
     artist_albums: dict[str, dict[str, list[bool]]] = defaultdict(lambda: defaultdict(list))
     artist_releases: dict[str, set[str]] = defaultdict(set)
+    album_is_solo_flags: dict[str, list[bool]] = defaultdict(list)
 
     for row in art_link_rows:
         art_id = str(row.artist_id)
@@ -306,6 +267,7 @@ def _compute_directory_cohorts(
                 == "solo"
             )
             artist_albums[art_id][alb_id].append(is_solo)
+            album_is_solo_flags[alb_id].append(is_solo)
 
     raw_artists: list[dict[str, Any]] = []
     for art_id, art_base in artists_map.items():
@@ -370,6 +332,8 @@ def _compute_directory_cohorts(
     final_albums: list[AlbumDirectoryItem] = []
     for alb_d in raw_albums:
         h_idx = calculate_hype_index(alb_d["raw_hype"], max_alb_raw, REFERENCE_FLOOR)
+        is_alb_solo = any(album_is_solo_flags.get(alb_d["album_id"], [True]))
+        alb_attribution: Literal["solo", "combined"] = "solo" if is_alb_solo else "combined"
         final_albums.append(
             AlbumDirectoryItem(
                 album_id=alb_d["album_id"],
@@ -384,6 +348,7 @@ def _compute_directory_cohorts(
                 hype_velocity=alb_d["hype_velocity"],
                 hype_index=h_idx,
                 tier=get_hype_tier(h_idx),
+                attribution=alb_attribution,
                 monogram_key=alb_d["monogram_key"],
                 created_at=alb_d["created_at"],
             )
@@ -424,6 +389,8 @@ def get_directory_releases(
     retailer: str | None = None,
     sort: Literal["hype_index", "hype_velocity", "submissions", "created_at"] | str = "hype_index",
     order: Literal["asc", "desc"] = "desc",
+    sort_by: str | None = None,
+    sort_order: Literal["asc", "desc"] | None = None,
     page: int = 1,
     page_size: int = 20,
     now: datetime | None = None,
@@ -432,6 +399,9 @@ def get_directory_releases(
     releases, _, _ = _compute_directory_cohorts(session, window=window, now=now)
 
     filtered = releases
+
+    actual_sort = sort_by or sort
+    actual_order = sort_order or order
 
     # Search filter
     if q and q.strip():
@@ -458,23 +428,23 @@ def get_directory_releases(
         ]
 
     # Sorting
-    is_reverse = order.lower() == "desc"
-    if sort == "hype_velocity":
+    is_reverse = actual_order.lower() == "desc"
+    if actual_sort == "hype_velocity":
         filtered.sort(
             key=lambda r: (r.hype_velocity, r.hype_index, r.created_at.timestamp(), r.release_id),
             reverse=is_reverse,
         )
-    elif sort in ("submissions", "submission_count"):
+    elif actual_sort in ("submissions", "submission_count"):
         filtered.sort(
             key=lambda r: (r.submission_count, r.score, r.hype_index, r.release_id),
             reverse=is_reverse,
         )
-    elif sort == "created_at":
+    elif actual_sort == "created_at":
         filtered.sort(
             key=lambda r: (r.created_at.timestamp(), r.hype_index, r.release_id),
             reverse=is_reverse,
         )
-    elif sort in ("title", "album_title"):
+    elif actual_sort in ("title", "album_title"):
         filtered.sort(
             key=lambda r: (r.album_title.lower(), r.combined_artist.lower(), r.release_id),
             reverse=is_reverse,
@@ -506,9 +476,12 @@ def get_directory_albums(
     q: str | None = None,
     tier: Literal["high", "moderate", "low"] | None = None,
     retailer: str | None = None,
+    attribution: Literal["all", "solo", "combined"] | None = None,
     sort: Literal["hype_index", "hype_velocity", "submissions", "created_at", "release_count"]
     | str = "hype_index",
     order: Literal["asc", "desc"] = "desc",
+    sort_by: str | None = None,
+    sort_order: Literal["asc", "desc"] | None = None,
     page: int = 1,
     page_size: int = 20,
     now: datetime | None = None,
@@ -517,6 +490,9 @@ def get_directory_albums(
     _, albums, _ = _compute_directory_cohorts(session, window=window, now=now)
 
     filtered = albums
+
+    actual_sort = sort_by or sort
+    actual_order = sort_order or order
 
     # Search filter
     if q and q.strip():
@@ -542,29 +518,34 @@ def get_directory_albums(
             a for a in filtered if any(r.strip().lower() == ret_norm for r in a.retailers)
         ]
 
+    # Attribution filter (solo vs combined)
+    if attribution and attribution.lower() in ("solo", "combined"):
+        target_attr = attribution.lower()
+        filtered = [a for a in filtered if a.attribution == target_attr]
+
     # Sorting
-    is_reverse = order.lower() == "desc"
-    if sort == "hype_velocity":
+    is_reverse = actual_order.lower() == "desc"
+    if actual_sort == "hype_velocity":
         filtered.sort(
             key=lambda a: (a.hype_velocity, a.hype_index, a.created_at.timestamp(), a.album_id),
             reverse=is_reverse,
         )
-    elif sort in ("submissions", "submission_count"):
+    elif actual_sort in ("submissions", "submission_count"):
         filtered.sort(
             key=lambda a: (a.submission_count, a.score, a.hype_index, a.album_id),
             reverse=is_reverse,
         )
-    elif sort == "created_at":
+    elif actual_sort == "created_at":
         filtered.sort(
             key=lambda a: (a.created_at.timestamp(), a.hype_index, a.album_id),
             reverse=is_reverse,
         )
-    elif sort == "release_count":
+    elif actual_sort == "release_count":
         filtered.sort(
             key=lambda a: (a.release_count, a.hype_index, a.album_id),
             reverse=is_reverse,
         )
-    elif sort in ("title", "album_title"):
+    elif actual_sort in ("title", "album_title"):
         filtered.sort(
             key=lambda a: (a.album_title.lower(), a.combined_artist.lower(), a.album_id),
             reverse=is_reverse,
@@ -595,11 +576,14 @@ def get_directory_artists(
     window: WindowType = DEFAULT_WINDOW,
     q: str | None = None,
     tier: Literal["high", "moderate", "low"] | None = None,
+    attribution: Literal["all", "solo", "combined"] | None = None,
     sort: Literal[
         "hype_index", "hype_velocity", "submissions", "created_at", "album_count", "release_count"
     ]
     | str = "hype_index",
     order: Literal["asc", "desc"] = "desc",
+    sort_by: str | None = None,
+    sort_order: Literal["asc", "desc"] | None = None,
     page: int = 1,
     page_size: int = 20,
     now: datetime | None = None,
@@ -608,6 +592,9 @@ def get_directory_artists(
     _, _, artists = _compute_directory_cohorts(session, window=window, now=now)
 
     filtered = artists
+
+    actual_sort = sort_by or sort
+    actual_order = sort_order or order
 
     # Search filter
     if q and q.strip():
@@ -619,36 +606,44 @@ def get_directory_artists(
         tier_lower = tier.lower()
         filtered = [a for a in filtered if a.tier == tier_lower]
 
+    # Attribution filter (solo vs combined)
+    if attribution and attribution.lower() in ("solo", "combined"):
+        target_attr = attribution.lower()
+        if target_attr == "solo":
+            filtered = [a for a in filtered if a.solo_album_count > 0]
+        elif target_attr == "combined":
+            filtered = [a for a in filtered if a.combined_album_count > 0]
+
     # Sorting
-    is_reverse = order.lower() == "desc"
-    if sort == "hype_velocity":
+    is_reverse = actual_order.lower() == "desc"
+    if actual_sort == "hype_velocity":
         filtered.sort(
             key=lambda a: (a.hype_velocity, a.hype_index, a.created_at.timestamp(), a.artist_id),
             reverse=is_reverse,
         )
-    elif sort in ("submissions", "submission_count"):
+    elif actual_sort in ("submissions", "submission_count"):
         filtered.sort(
             key=lambda a: (a.submission_count, a.score, a.hype_index, a.artist_id),
             reverse=is_reverse,
         )
-    elif sort == "created_at":
+    elif actual_sort == "created_at":
         filtered.sort(
             key=lambda a: (a.created_at.timestamp(), a.hype_index, a.artist_id),
             reverse=is_reverse,
         )
-    elif sort == "album_count":
+    elif actual_sort == "album_count":
         filtered.sort(
             key=lambda a: (a.album_count, a.release_count, a.hype_index, a.artist_id),
             reverse=is_reverse,
         )
-    elif sort == "release_count":
+    elif actual_sort == "release_count":
         filtered.sort(
             key=lambda a: (a.release_count, a.album_count, a.hype_index, a.artist_id),
             reverse=is_reverse,
         )
-    elif sort == "name":
+    elif actual_sort in ("name", "artist_name"):
         filtered.sort(
-            key=lambda a: (a.name.lower(), a.hype_index, a.artist_id),
+            key=lambda a: (a.name.lower(), a.artist_id),
             reverse=is_reverse,
         )
     else:  # default "hype_index"

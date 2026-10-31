@@ -208,7 +208,7 @@ describe('ArtistDetail Screen', () => {
 
     const demandCard = screen.getByTestId('hero-kpi-reddit-demand')
     expect(demandCard).toHaveTextContent('+85 pts')
-    expect(demandCard).toHaveTextContent('5 Posts · 220 upvotes · 45 comments')
+    expect(demandCard).toHaveTextContent('5 Submissions · 220 upvotes · 45 comments')
   })
 
   it('renders Tracked Albums matrix with 7 columns, Solo and Combined badges, and View Album links with window query', async () => {
@@ -250,6 +250,8 @@ describe('ArtistDetail Screen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('table-child-releases')).toBeInTheDocument()
     })
+
+    expect(screen.getByText(/All physical variants across/i)).toBeInTheDocument()
 
     const table = screen.getByTestId('table-child-releases')
     expect(within(table).getByText('2LP Purple Marbled')).toBeInTheDocument()

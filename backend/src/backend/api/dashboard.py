@@ -17,8 +17,8 @@ def get_dashboard(
     db: Annotated[Session, Depends(get_db)],
     window: Literal["24H", "7D", "1M"] = Query(
         "24H",
-        description="Analysis timeframe window (24H, 7D, or 1M)",
+        description="Analysis window (24H, 7D, or 1M)",
     ),
 ) -> DashboardResponse:
-    """Retrieve top trending albums, top releases, newly added, and live feed for the requested window."""
+    """Retrieve top albums, top releases, newly added, and live feed for the requested window."""
     return get_dashboard_data(session=db, window=window)

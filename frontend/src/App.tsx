@@ -24,6 +24,7 @@ export const App: React.FC = () => {
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<DemandDashboard />} />
+            <Route path="dashboard" element={<DemandDashboard />} />
             <Route path="directory" element={<DirectoryExplorer />} />
             <Route path="albums/:albumId" element={<AlbumDetail />} />
             <Route path="releases/:releaseId" element={<ReleaseDetail />} />

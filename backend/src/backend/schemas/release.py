@@ -25,6 +25,7 @@ class ReleasePhysicalSpecs(BaseModel):
     first_seen_at: datetime | None
     last_seen_at: datetime | None
     monogram_key: str
+    artist_id: str | None = None
 
 
 class ParentAlbumInfo(BaseModel):
@@ -42,6 +43,8 @@ class SubmissionEngagement(BaseModel):
     total_score: int
     total_comments: int
     submission_count: int
+    upvote_ratio: float | None = None
+    latest_upvote_ratio: float | None = None
 
 
 class ProvenanceSummary(BaseModel):

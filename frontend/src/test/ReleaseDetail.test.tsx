@@ -20,6 +20,7 @@ const mockReleaseResponse24H = {
     album_id: 'alb-test-456',
     album_title: 'Lull',
     combined_artist: 'The Smashing Pumpkins',
+    artist_id: 'art-test-1',
     variant: 'Opaque Purple Vinyl',
     retailer_name: 'Rough Trade',
     first_seen_at: '2026-10-31T10:00:00Z',
@@ -40,6 +41,7 @@ const mockReleaseResponse24H = {
       total_score: 60,
       total_comments: 15,
       submission_count: 2,
+      latest_upvote_ratio: 0.95,
     },
     provenance_summary: {
       first_seen_at: '2026-10-31T10:00:00Z',
@@ -151,7 +153,8 @@ describe('ReleaseDetail Screen', () => {
       expect(screen.getByText('Lull — Opaque Purple Vinyl')).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/The Smashing Pumpkins · Rough Trade/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Rough Trade/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/The Smashing Pumpkins/i).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/LAST SEEN:/i)).toBeInTheDocument()
     expect(screen.getByText(/Back to Album: Lull \(3 Releases\)/i)).toBeInTheDocument()
   })
@@ -177,10 +180,10 @@ describe('ReleaseDetail Screen', () => {
 
     const engCard = screen.getByTestId('hero-kpi-submission-engagement')
     expect(engCard).toHaveTextContent('+35 pts')
-    expect(engCard).toHaveTextContent('60 upvotes · 15 comments')
+    expect(engCard).toHaveTextContent('60 · 95% · 15 comments')
 
     const provCard = screen.getByTestId('hero-kpi-provenance-summary')
-    expect(provCard).toHaveTextContent('2 Linked Posts')
+    expect(provCard).toHaveTextContent('2 Linked Submissions')
   })
 
   it('renders Physical Specification card with parent album link, variant chip, retailer, and dates', async () => {
@@ -197,6 +200,8 @@ describe('ReleaseDetail Screen', () => {
 
     const specsCard = screen.getByTestId('card-physical-specs')
     expect(specsCard).toHaveTextContent('The Smashing Pumpkins')
+    const artistLink = within(specsCard).getByRole('link', { name: /The Smashing Pumpkins/i })
+    expect(artistLink).toHaveAttribute('href', '/artists/art-test-1?window=24H')
     expect(specsCard).toHaveTextContent('View Album (3 Releases) →')
     expect(specsCard).toHaveTextContent('Opaque Purple Vinyl')
     expect(specsCard).toHaveTextContent('Rough Trade')

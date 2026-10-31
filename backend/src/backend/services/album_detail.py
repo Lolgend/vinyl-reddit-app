@@ -33,9 +33,7 @@ from backend.services.hype import (
     WINDOW_CONFIG,
     WindowType,
     calculate_hype_index,
-    calculate_points,
-    calculate_raw_hype,
-    calculate_velocity,
+    compute_submission_metrics,
     get_hype_tier,
 )
 from backend.services.timeseries import (
@@ -192,55 +190,16 @@ def get_album_detail(
         if s_id in submission_metrics:
             continue
 
-        s_created_utc = row.created_utc
-        snaps = snapshots_by_sub.get(s_id, [])
-
-        # Baseline Anchor (E_base, t_base)
-        if s_created_utc >= t0:
-            e_base = 0
-            t_base = s_created_utc
-        else:
-            snaps_before_t0 = [sn for sn in snaps if sn["captured_at"] <= t0]
-            if snaps_before_t0:
-                anchor_snap = snaps_before_t0[-1]
-                e_base = calculate_points(anchor_snap["score"], anchor_snap["num_comments"])
-                t_base = anchor_snap["captured_at"]
-            else:
-                snaps_in_window = [sn for sn in snaps if sn["captured_at"] > t0]
-                if snaps_in_window:
-                    anchor_snap = snaps_in_window[0]
-                    e_base = calculate_points(anchor_snap["score"], anchor_snap["num_comments"])
-                    t_base = anchor_snap["captured_at"]
-                else:
-                    e_base = calculate_points(row.latest_score, row.latest_num_comments)
-                    t_base = s_created_utc
-
-        # Current state (E_curr)
-        if snaps:
-            latest_snap = snaps[-1]
-            e_curr = calculate_points(latest_snap["score"], latest_snap["num_comments"])
-        else:
-            e_curr = calculate_points(row.latest_score, row.latest_num_comments)
-
-        delta_e = max(0, e_curr - e_base)
-        v_s = calculate_velocity(delta_e, t_base, now)
-        h_s = calculate_raw_hype(
-            velocity=v_s,
-            delta_e=delta_e,
-            created_utc=s_created_utc,
-            upvote_ratio=row.latest_upvote_ratio,
+        submission_metrics[s_id] = compute_submission_metrics(
+            created_utc=row.created_utc,
+            latest_score=row.latest_score,
+            latest_num_comments=row.latest_num_comments,
+            latest_upvote_ratio=row.latest_upvote_ratio,
+            snapshots=snapshots_by_sub.get(s_id, []),
             window=window,
             now=now,
+            t0=t0,
         )
-
-        submission_metrics[s_id] = {
-            "velocity": v_s,
-            "delta_e": delta_e,
-            "raw_hype": h_s,
-            "created_utc": s_created_utc,
-            "score": row.latest_score,
-            "num_comments": row.latest_num_comments,
-        }
 
     # Compute raw hypes across all albums and releases for cohort scaling
     album_raw_hypes: list[float] = []

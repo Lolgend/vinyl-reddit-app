@@ -15,6 +15,7 @@ const mock24hDashboard = {
       hype_velocity: 14.5,
       tier: 'high',
       release_count: 3,
+      submission_count: 7,
       monogram_key: 'alb-1',
     },
     {
@@ -25,6 +26,7 @@ const mock24hDashboard = {
       hype_velocity: 8.2,
       tier: 'high',
       release_count: 2,
+      submission_count: 4,
       monogram_key: 'alb-2',
     },
   ],
@@ -65,6 +67,7 @@ const mock24hDashboard = {
       hype_index: 80,
       hype_velocity: 12.0,
       tier: 'high',
+      latest_score: 95,
       monogram_key: 'rel-new-1',
       first_seen_at: new Date().toISOString(),
     },
@@ -130,6 +133,7 @@ const mock7dDashboard = {
       hype_velocity: 22.0,
       tier: 'high',
       release_count: 4,
+      submission_count: 9,
       monogram_key: 'alb-7d-1',
     },
   ],
@@ -183,10 +187,12 @@ describe('DemandDashboard Page', () => {
       expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
     })
 
-    expect(screen.getByText('Top Trending Albums')).toBeDefined()
-    expect(screen.getByText('Top Trending Releases')).toBeDefined()
+    expect(screen.getByText('Top Albums')).toBeDefined()
+    expect(screen.getByText('Top Releases')).toBeDefined()
     expect(screen.getByText('Newly Added Releases')).toBeDefined()
     expect(screen.getByText('Live Release Feed')).toBeDefined()
+    expect(screen.getByText(/7 Submissions/i)).toBeInTheDocument()
+    expect(screen.getByText(/95 pts/i)).toBeInTheDocument()
   })
 
   it('renders uniform 5 rows with dashed placeholders across all 3 leaderboard cards', async () => {

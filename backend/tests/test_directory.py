@@ -235,7 +235,44 @@ class TestDirectoryAPIEndpoints:
         assert "hype_index" in first
         assert "hype_velocity" in first
         assert "tier" in first
+        assert "attribution" in first
         assert "monogram_key" in first
+
+    def test_api_directory_albums_attribution_filter(self, client):
+        res_solo = client.get("/api/v1/directory/albums?attribution=solo")
+        assert res_solo.status_code == 200
+        solo_data = res_solo.json()
+        assert len(solo_data["items"]) > 0
+        for item in solo_data["items"]:
+            assert item["attribution"] == "solo"
+
+        res_combined = client.get("/api/v1/directory/albums?attribution=combined")
+        assert res_combined.status_code == 200
+        comb_data = res_combined.json()
+        for item in comb_data["items"]:
+            assert item["attribution"] == "combined"
+
+    def test_api_directory_artists_attribution_filter(self, client):
+        res_solo = client.get("/api/v1/directory/artists?attribution=solo")
+        assert res_solo.status_code == 200
+        solo_data = res_solo.json()
+        assert len(solo_data["items"]) > 0
+        for item in solo_data["items"]:
+            assert item["solo_album_count"] > 0
+
+        res_comb = client.get("/api/v1/directory/artists?attribution=combined")
+        assert res_comb.status_code == 200
+        comb_data = res_comb.json()
+        for item in comb_data["items"]:
+            assert item["combined_album_count"] > 0
+
+    def test_api_directory_sort_by_and_sort_order_aliases(self, client):
+        res = client.get("/api/v1/directory/releases?sort_by=hype_velocity&sort_order=asc&page=1&page_size=10")
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data["items"]) == 10
+        velocities = [item["hype_velocity"] for item in data["items"]]
+        assert velocities == sorted(velocities)
 
     def test_api_directory_artists_endpoint(self, client):
         response = client.get("/api/v1/directory/artists?window=1M&page=1&page_size=10")

@@ -165,7 +165,9 @@ describe('AlbumDetail Screen', () => {
       expect(screen.getByText('Lull')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('The Smashing Pumpkins')).toBeInTheDocument()
+    expect(screen.getAllByText('The Smashing Pumpkins').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByTestId('artist-chip-art-1')).toBeInTheDocument()
+    expect(screen.getByTestId('artist-chip-art-1')).toHaveAttribute('href', '/artists/art-1?window=24H')
     expect(screen.getByText(/LAST SEEN:/i)).toBeInTheDocument()
     expect(screen.getByText(/Back to Directory/i)).toBeInTheDocument()
   })
@@ -195,7 +197,7 @@ describe('AlbumDetail Screen', () => {
 
     const provCard = screen.getByTestId('hero-kpi-provenance')
     expect(provCard).toHaveTextContent('2 Pressings')
-    expect(provCard).toHaveTextContent('2 Posts')
+    expect(provCard).toHaveTextContent('2 Submissions')
   })
 
   it('renders stepped LOCF chart and submission event markers', async () => {
@@ -249,6 +251,8 @@ describe('AlbumDetail Screen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('table-child-releases')).toBeInTheDocument()
     })
+
+    expect(screen.getByText('2 Recorded Variants')).toBeInTheDocument()
 
     const viewLinks = screen.getAllByRole('link', { name: /View Release →/i })
     expect(viewLinks.length).toBe(2)

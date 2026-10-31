@@ -3,10 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ArrowRight, ChevronLeft, ChevronRight, LayoutGrid, List, Search, X } from 'lucide-react'
 import { VinylMonogram } from '../components/VinylMonogram'
+import { TierBadge } from '../components/TierBadge'
 
 type DirectoryTab = 'releases' | 'albums' | 'artists'
 type WindowType = '24H' | '7D' | '1M'
 type TierFilter = 'all' | 'high' | 'moderate' | 'low'
+type AttributionFilter = 'all' | 'solo' | 'combined'
 type ViewMode = 'grid' | 'table'
 
 interface ReleaseItem {
@@ -97,8 +99,13 @@ export const DirectoryExplorer: React.FC = () => {
   })()
 
   const activeRetailer = searchParams.get('retailer') || ''
-  const activeSort = searchParams.get('sort') || 'hype_index'
-  const activeOrder = searchParams.get('order')?.toLowerCase() === 'asc' ? 'asc' : 'desc'
+  const activeAttribution: AttributionFilter = (() => {
+    const a = searchParams.get('attribution')?.toLowerCase()
+    if (a === 'solo' || a === 'combined') return a
+    return 'all'
+  })()
+  const activeSort = searchParams.get('sort') || searchParams.get('sort_by') || 'hype_index'
+  const activeOrder = (searchParams.get('order') || searchParams.get('sort_order') || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc'
   const activePage = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1)
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
 
@@ -112,7 +119,13 @@ export const DirectoryExplorer: React.FC = () => {
   const updateParams = (updates: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams)
     for (const [key, val] of Object.entries(updates)) {
-      if (val === null || val === '' || (key === 'tier' && val === 'all') || (key === 'retailer' && val === 'all')) {
+      if (
+        val === null ||
+        val === '' ||
+        (key === 'tier' && val === 'all') ||
+        (key === 'attribution' && val === 'all') ||
+        (key === 'retailer' && val === 'all')
+      ) {
         next.delete(key)
       } else {
         next.set(key, val)
@@ -131,6 +144,10 @@ export const DirectoryExplorer: React.FC = () => {
 
   const handleTierChange = (tier: TierFilter) => {
     updateParams({ tier, page: '1' })
+  }
+
+  const handleAttributionChange = (attribution: AttributionFilter) => {
+    updateParams({ attribution, page: '1' })
   }
 
   const handleRetailerChange = (retailer: string) => {
@@ -188,11 +205,14 @@ export const DirectoryExplorer: React.FC = () => {
     params.set('page_size', '20')
     if (urlQuery.trim()) params.set('q', urlQuery.trim())
     if (activeTier !== 'all') params.set('tier', activeTier)
+    if (activeAttribution !== 'all' && (activeTab === 'albums' || activeTab === 'artists')) {
+      params.set('attribution', activeAttribution)
+    }
     if (activeRetailer.trim() && activeTab !== 'artists') params.set('retailer', activeRetailer.trim())
     if (activeSort) params.set('sort', activeSort)
     params.set('order', activeOrder)
     return params.toString()
-  }, [activeWindow, activePage, urlQuery, activeTier, activeRetailer, activeSort, activeOrder, activeTab])
+  }, [activeWindow, activePage, urlQuery, activeTier, activeAttribution, activeRetailer, activeSort, activeOrder, activeTab])
 
   const {
     data: tabData,
@@ -222,25 +242,6 @@ export const DirectoryExplorer: React.FC = () => {
   const items = tabData?.items ?? []
   const totalItems = tabData?.total_items ?? 0
   const totalPages = tabData?.total_pages ?? 1
-
-  // Helper for tier badge
-  const renderTierBadge = (hypeIndex: number, tier: 'high' | 'moderate' | 'low') => {
-    const bg =
-      tier === 'high'
-        ? 'bg-[#68D391] text-[#121212]'
-        : tier === 'moderate'
-        ? 'bg-[#ECC94B] text-[#121212]'
-        : 'bg-[#E5E0DA] text-[#646464]'
-
-    return (
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] border-[1.5px] border-[#121212] font-mono text-xs font-bold shrink-0 ${bg}`}
-      >
-        {hypeIndex}
-        <span className="text-[10px] font-normal uppercase">{tier}</span>
-      </span>
-    )
-  }
 
   // Helper for tier progress bar
   const renderTierBar = (hypeIndex: number, tier: 'high' | 'moderate' | 'low') => {
@@ -468,6 +469,48 @@ export const DirectoryExplorer: React.FC = () => {
           </div>
         </div>
 
+        {/* Attribution Filter Pills (Albums & Artists tabs only) */}
+        {(activeTab === 'albums' || activeTab === 'artists') && (
+          <div className="flex items-center gap-1.5 flex-wrap border-t border-[#E5E0DA] pt-3">
+            <span className="font-mono text-[11px] font-semibold text-[#646464] uppercase mr-1">
+              ATTRIBUTION:
+            </span>
+            <button
+              onClick={() => handleAttributionChange('all')}
+              className={`px-3 py-1 rounded-[9999px] text-xs font-mono font-bold transition-all ${
+                activeAttribution === 'all'
+                  ? 'bg-[#121212] text-white border-[1.5px] border-[#121212] shadow-brutal-sm'
+                  : 'bg-white text-[#121212] border-[1.5px] border-[#121212] hover:bg-[#FAF7F5]'
+              }`}
+              data-testid="attribution-filter-all"
+            >
+              ALL
+            </button>
+            <button
+              onClick={() => handleAttributionChange('solo')}
+              className={`px-3 py-1 rounded-[9999px] text-xs font-mono font-bold transition-all ${
+                activeAttribution === 'solo'
+                  ? 'bg-[#121212] text-white border-[1.5px] border-[#121212] shadow-brutal-sm'
+                  : 'bg-white text-[#121212] border-[1.5px] border-[#121212] hover:bg-[#FAF7F5]'
+              }`}
+              data-testid="attribution-filter-solo"
+            >
+              SOLO
+            </button>
+            <button
+              onClick={() => handleAttributionChange('combined')}
+              className={`px-3 py-1 rounded-[9999px] text-xs font-mono font-bold transition-all ${
+                activeAttribution === 'combined'
+                  ? 'bg-[#121212] text-white border-[1.5px] border-[#121212] shadow-brutal-sm'
+                  : 'bg-white text-[#121212] border-[1.5px] border-[#121212] hover:bg-[#FAF7F5]'
+              }`}
+              data-testid="attribution-filter-combined"
+            >
+              COMBINED
+            </button>
+          </div>
+        )}
+
         {/* Row 3: Retailer Facet Chips (Releases & Albums tabs only) */}
         {activeTab !== 'artists' && retailersData.length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap border-t border-[#E5E0DA] pt-3">
@@ -633,9 +676,14 @@ export const DirectoryExplorer: React.FC = () => {
                 Retailer: {activeRetailer}
               </span>
             )}
-            {!urlQuery && activeTier === 'all' && !activeRetailer && (
+            {activeAttribution !== 'all' && (
+              <span className="inline-block bg-[#F7F3F0] border border-[#121212] px-2.5 py-0.5 rounded font-mono text-xs text-[#121212]" data-testid="filter-pill-attribution">
+                Attribution: {activeAttribution.toUpperCase()}
+              </span>
+            )}
+            {!urlQuery && activeTier === 'all' && activeAttribution === 'all' && !activeRetailer && (
               <p className="font-sans text-xs text-[#646464] max-w-md">
-                No records match the current filters in the {activeWindow} timeframe. Try resetting filters
+                No records match the current filters in the {activeWindow} window. Try resetting filters
                 or clearing search parameters.
               </p>
             )}
@@ -697,7 +745,7 @@ export const DirectoryExplorer: React.FC = () => {
                                 </span>
                               </div>
                             </div>
-                            {renderTierBadge(rel.hype_index, rel.tier)}
+                            <TierBadge value={rel.hype_index} tier={rel.tier} />
                           </div>
 
                           {/* Metadata chips: Variant & Retailer */}
@@ -730,7 +778,7 @@ export const DirectoryExplorer: React.FC = () => {
                             </div>
                             {renderTierBar(rel.hype_index, rel.tier)}
                             <div className="font-mono text-[11px] text-[#646464] mt-2">
-                              {rel.score} pts · {rel.num_comments} comments · {rel.submission_count} posts
+                              {rel.score} pts · {rel.num_comments} comments · {rel.submission_count} submissions
                             </div>
                           </div>
                         </div>
@@ -816,7 +864,7 @@ export const DirectoryExplorer: React.FC = () => {
                             <td className="py-3 px-4 text-[#646464]">{retailerDisplay}</td>
                             <td className="py-3 px-4">
                               <div className="flex flex-col">
-                                {renderTierBadge(rel.hype_index, rel.tier)}
+                                <TierBadge value={rel.hype_index} tier={rel.tier} />
                                 {renderTierBar(rel.hype_index, rel.tier)}
                               </div>
                             </td>
@@ -824,7 +872,7 @@ export const DirectoryExplorer: React.FC = () => {
                               +{rel.hype_velocity} pts/hr
                             </td>
                             <td className="py-3 px-4 font-mono text-[#646464]">
-                              {rel.score} pts · {rel.num_comments} cmts · {rel.submission_count} posts
+                              {rel.score} pts · {rel.num_comments} cmts · {rel.submission_count} submissions
                             </td>
                             <td className="py-3 px-4 text-right">
                               <Link
@@ -924,14 +972,14 @@ export const DirectoryExplorer: React.FC = () => {
                         )}
                       </td>
                       <td className="py-3 px-4 font-mono text-[#646464]">
-                        {alb.score} pts · {alb.num_comments} cmts · {alb.submission_count} posts
+                        {alb.score} pts · {alb.num_comments} cmts · {alb.submission_count} submissions
                       </td>
                       <td className="py-3 px-4 font-mono font-bold text-[#121212]">
                         +{alb.hype_velocity} pts/hr
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex flex-col">
-                          {renderTierBadge(alb.hype_index, alb.tier)}
+                          <TierBadge value={alb.hype_index} tier={alb.tier} />
                           {renderTierBar(alb.hype_index, alb.tier)}
                         </div>
                       </td>
@@ -1005,14 +1053,14 @@ export const DirectoryExplorer: React.FC = () => {
                         {art.release_count} {art.release_count === 1 ? 'Pressing' : 'Pressings'}
                       </td>
                       <td className="py-3 px-4 font-mono text-[#646464]">
-                        {art.score} pts · {art.num_comments} cmts · {art.submission_count} posts
+                        {art.score} pts · {art.num_comments} cmts · {art.submission_count} submissions
                       </td>
                       <td className="py-3 px-4 font-mono font-bold text-[#121212]">
                         +{art.hype_velocity} pts/hr
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-col">
-                          {renderTierBadge(art.hype_index, art.tier)}
+                          <TierBadge value={art.hype_index} tier={art.tier} />
                           {renderTierBar(art.hype_index, art.tier)}
                         </div>
                       </td>

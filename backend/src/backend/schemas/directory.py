@@ -27,7 +27,7 @@ class ReleaseDirectoryItem(BaseModel):
     album_id: str = Field(..., description="Deterministic 16-character SHA-256 album key")
     album_title: str = Field(..., description="Album title")
     combined_artist: str = Field(..., description="Artist or collaborative artist billing")
-    variant: str | None = Field(default=None, description="Pressing variant description or colorway")
+    variant: str | None = Field(default=None, description="Pressing variant description")
     retailer_name: str | None = Field(default=None, description="Retailer or webstore distributor")
     hype_index: int = Field(..., ge=0, le=100, description="Window-decayed Hype Index (0-100)")
     hype_velocity: float = Field(..., ge=0.0, description="Hype Velocity in points/hour")
@@ -60,6 +60,10 @@ class AlbumDirectoryItem(BaseModel):
     hype_velocity: float = Field(..., ge=0.0, description="Hype Velocity in points/hour")
     hype_index: int = Field(..., ge=0, le=100, description="Window-decayed Hype Index (0-100)")
     tier: Literal["high", "moderate", "low"] = Field(..., description="Hype demand tier")
+    attribution: Literal["solo", "combined"] = Field(
+        default="solo",
+        description="Solo vs Combined artist billing attribution",
+    )
     monogram_key: str = Field(..., description="Key for deterministic monogram styling")
     created_at: datetime = Field(..., description="Earliest release creation timestamp")
 

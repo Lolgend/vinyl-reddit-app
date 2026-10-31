@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ArrowUpRight, Flame, Layers, Search, Sparkles, TrendingUp, X } from 'lucide-react'
 import { VinylMonogram } from '../components/VinylMonogram'
+import { TierBadge } from '../components/TierBadge'
 import { formatRelativeTime } from '../utils/formatTime'
 
 type WindowType = '24H' | '7D' | '1M'
@@ -17,6 +18,7 @@ interface AlbumLeaderboardItem {
   hype_velocity: number
   tier: 'high' | 'moderate' | 'low'
   release_count: number
+  submission_count?: number
   monogram_key: string
 }
 
@@ -45,6 +47,7 @@ interface NewlyAddedReleaseItem {
   tier: 'high' | 'moderate' | 'low'
   monogram_key: string
   first_seen_at: string
+  latest_score?: number
 }
 
 interface LiveFeedItem {
@@ -181,25 +184,6 @@ export const DemandDashboard: React.FC = () => {
   const topReleases = releaseData?.top_releases || []
   const newlyAdded = albumData?.newly_added || []
 
-  // Helper for tier badges
-  const renderTierBadge = (index: number, tier: 'high' | 'moderate' | 'low') => {
-    const bg =
-      tier === 'high'
-        ? 'bg-[#68D391] text-[#121212]'
-        : tier === 'moderate'
-        ? 'bg-[#ECC94B] text-[#121212]'
-        : 'bg-[#E5E0DA] text-[#646464]'
-
-    return (
-      <span
-        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] border-[1.5px] border-[#121212] font-mono text-xs font-bold shrink-0 ${bg}`}
-      >
-        {index}
-        <span className="text-[10px] font-normal uppercase">{tier}</span>
-      </span>
-    )
-  }
-
   return (
     <div className="flex flex-col gap-6" data-testid="screen-demand-dashboard">
       <div>
@@ -207,7 +191,7 @@ export const DemandDashboard: React.FC = () => {
           Demand Dashboard
         </h1>
         <p className="font-sans text-sm text-[#646464] mt-1">
-          Live r/vinylreleases demand signals, leaderboard rankings, and post velocity.
+          Live r/vinylreleases demand signals, leaderboard rankings, and submission velocity.
         </p>
       </div>
 
@@ -248,7 +232,7 @@ export const DemandDashboard: React.FC = () => {
             <div className="flex items-center justify-between mb-2">
               <span className="font-mono text-[11px] font-semibold text-[#646464] uppercase tracking-wider flex items-center gap-1.5">
                 <Flame className="w-3.5 h-3.5 text-[#121212]" />
-                Top Trending Albums
+                Top Albums
               </span>
               {/* Window Pill Switcher */}
               <div className="flex items-center bg-[#F7F3F0] p-0.5 rounded-full border-[1.5px] border-[#121212]">
@@ -287,7 +271,7 @@ export const DemandDashboard: React.FC = () => {
                     {topAlbums.map((album, idx) => (
                       <div
                         key={album.album_id}
-                        className="flex items-center justify-between gap-3 p-2 bg-[#FAF7F5] border border-[#E5E0DA] rounded-[4px] hover:border-[#121212] transition-colors h-[52px]"
+                        className="flex items-center justify-between gap-3 p-2 bg-[#FAF7F5] border border-[#E5E0DA] rounded-[4px] hover:border-[#121212] transition-colors min-h-[52px]"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <span className="bg-[#121212] text-white font-mono text-xs font-bold px-1.5 py-0.5 rounded-[4px] shrink-0">
@@ -308,12 +292,26 @@ export const DemandDashboard: React.FC = () => {
                             </Link>
                             <div className="text-[11px] text-[#646464] font-sans truncate">
                               {album.combined_artist} · {album.release_count}{' '}
-                              {album.release_count === 1 ? 'Release' : 'Releases'}
+                              {album.release_count === 1 ? 'Release' : 'Releases'} ·{' '}
+                              {album.submission_count ?? 0}{' '}
+                              {(album.submission_count ?? 0) === 1 ? 'Submission' : 'Submissions'}
                             </div>
                           </div>
                         </div>
-                        <div className="flex flex-col items-end shrink-0">
-                          {renderTierBadge(album.hype_index, album.tier)}
+                        <div className="flex flex-col items-end shrink-0 w-24">
+                          <TierBadge value={album.hype_index} tier={album.tier} />
+                          <div className="w-full bg-[#E5E0DA] h-1.5 rounded-[2px] mt-1 overflow-hidden border border-[#121212]">
+                            <div
+                              className={`h-full ${
+                                album.tier === 'high'
+                                  ? 'bg-[#68D391]'
+                                  : album.tier === 'moderate'
+                                  ? 'bg-[#ECC94B]'
+                                  : 'bg-[#646464]'
+                              }`}
+                              style={{ width: `${Math.min(100, Math.max(0, album.hype_index))}%` }}
+                            />
+                          </div>
                           <span className="font-mono text-[10px] text-[#646464] mt-0.5">
                             +{album.hype_velocity} pts/hr
                           </span>
@@ -344,7 +342,7 @@ export const DemandDashboard: React.FC = () => {
             <div className="flex items-center justify-between mb-2">
               <span className="font-mono text-[11px] font-semibold text-[#646464] uppercase tracking-wider flex items-center gap-1.5">
                 <TrendingUp className="w-3.5 h-3.5 text-[#121212]" />
-                Top Trending Releases
+                Top Releases
               </span>
               {/* Window Pill Switcher */}
               <div className="flex items-center bg-[#F7F3F0] p-0.5 rounded-full border-[1.5px] border-[#121212]">
@@ -409,7 +407,7 @@ export const DemandDashboard: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex flex-col items-end shrink-0">
-                          {renderTierBadge(release.hype_index, release.tier)}
+                          <TierBadge value={release.hype_index} tier={release.tier} />
                           <span className="font-mono text-[10px] text-[#646464] mt-0.5">
                             +{release.hype_velocity} pts/hr
                           </span>
@@ -491,9 +489,9 @@ export const DemandDashboard: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex flex-col items-end shrink-0">
-                          {renderTierBadge(release.hype_index, release.tier)}
+                          <TierBadge value={release.hype_index} tier={release.tier} />
                           <span className="font-mono text-[10px] text-[#646464] mt-0.5">
-                            +{release.hype_velocity} pts/hr
+                            +{release.hype_velocity} pts/hr · {release.latest_score ?? 0} pts
                           </span>
                         </div>
                       </div>
@@ -688,7 +686,7 @@ export const DemandDashboard: React.FC = () => {
                     {/* 4. Hype Index */}
                     <td className="py-3 px-3 text-center">
                       <div className="inline-flex flex-col items-center gap-1 w-20">
-                        {renderTierBadge(item.hype_index, item.tier)}
+                        <TierBadge value={item.hype_index} tier={item.tier} />
                         <div className="w-full h-1.5 bg-[#E5E0DA] rounded-full overflow-hidden border border-[#121212]">
                           <div
                             className={`h-full ${

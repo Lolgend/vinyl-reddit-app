@@ -152,6 +152,81 @@ def get_hype_tier(hype_index: int) -> Literal["high", "moderate", "low"]:
         return "low"
 
 
+def compute_submission_metrics(
+    created_utc: datetime,
+    latest_score: int,
+    latest_num_comments: int,
+    latest_upvote_ratio: float | None,
+    snapshots: list[Any],
+    window: str = DEFAULT_WINDOW,
+    now: datetime | None = None,
+    t0: datetime | None = None,
+) -> dict[str, Any]:
+    """Compute submission metrics including baseline anchoring, elapsed time floor, and velocity calculations.
+
+    Elapsed time delta_t uses a 15-minute floor (0.25 hours) measuring to now
+    so that dormant posts cool naturally.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    if t0 is None:
+        spec = WINDOW_CONFIG.get(window, WINDOW_CONFIG[DEFAULT_WINDOW])
+        t0 = now - timedelta(hours=spec.duration_hours)
+
+    def _get(sn: Any, key: str) -> Any:
+        return sn[key] if isinstance(sn, dict) else getattr(sn, key)
+
+    # Baseline Anchor (E_base, t_base)
+    if created_utc >= t0:
+        # Post created inside window: origin anchor guarantees launch velocity
+        e_base = 0
+        t_base = created_utc
+    else:
+        # Post created before window
+        snaps_before_t0 = [sn for sn in snapshots if _get(sn, "captured_at") <= t0]
+        if snaps_before_t0:
+            anchor_snap = snaps_before_t0[-1]
+            e_base = calculate_points(_get(anchor_snap, "score"), _get(anchor_snap, "num_comments"))
+            t_base = _get(anchor_snap, "captured_at")
+        else:
+            snaps_in_window = [sn for sn in snapshots if _get(sn, "captured_at") > t0]
+            if snaps_in_window:
+                anchor_snap = snaps_in_window[0]
+                e_base = calculate_points(_get(anchor_snap, "score"), _get(anchor_snap, "num_comments"))
+                t_base = _get(anchor_snap, "captured_at")
+            else:
+                e_base = calculate_points(latest_score, latest_num_comments)
+                t_base = created_utc
+
+    # Current state (E_curr)
+    if snapshots:
+        latest_snap = snapshots[-1]
+        e_curr = calculate_points(_get(latest_snap, "score"), _get(latest_snap, "num_comments"))
+    else:
+        e_curr = calculate_points(latest_score, latest_num_comments)
+
+    delta_e = max(0, e_curr - e_base)
+    v_s = calculate_velocity(delta_e, t_base, now)
+    h_s = calculate_raw_hype(
+        velocity=v_s,
+        delta_e=delta_e,
+        created_utc=created_utc,
+        upvote_ratio=latest_upvote_ratio,
+        window=window,
+        now=now,
+    )
+
+    return {
+        "velocity": v_s,
+        "delta_e": delta_e,
+        "raw_hype": h_s,
+        "created_utc": created_utc,
+        "score": latest_score,
+        "num_comments": latest_num_comments,
+    }
+
+
 def get_dashboard_data(
     session: Session,
     window: WindowType = DEFAULT_WINDOW,
@@ -235,57 +310,44 @@ def get_dashboard_data(
         if s_id in submission_metrics:
             continue
 
-        s_created_utc = row.created_utc
-        snaps = snapshots_by_sub.get(s_id, [])
-
-        # Baseline Anchor (E_base, t_base)
-        if s_created_utc >= t0:
-            # Post created inside window: origin anchor guarantees launch velocity
-            e_base = 0
-            t_base = s_created_utc
-        else:
-            # Post created before window
-            snaps_before_t0 = [sn for sn in snaps if sn.captured_at <= t0]
-            if snaps_before_t0:
-                anchor_snap = snaps_before_t0[-1]
-                e_base = calculate_points(anchor_snap.score, anchor_snap.num_comments)
-                t_base = anchor_snap.captured_at
-            else:
-                snaps_in_window = [sn for sn in snaps if sn.captured_at > t0]
-                if snaps_in_window:
-                    anchor_snap = snaps_in_window[0]
-                    e_base = calculate_points(anchor_snap.score, anchor_snap.num_comments)
-                    t_base = anchor_snap.captured_at
-                else:
-                    e_base = calculate_points(row.latest_score, row.latest_num_comments)
-                    t_base = s_created_utc
-
-        # Current state (E_curr)
-        if snaps:
-            latest_snap = snaps[-1]
-            e_curr = calculate_points(latest_snap.score, latest_snap.num_comments)
-        else:
-            e_curr = calculate_points(row.latest_score, row.latest_num_comments)
-
-        delta_e = max(0, e_curr - e_base)
-        v_s = calculate_velocity(delta_e, t_base, now)
-        h_s = calculate_raw_hype(
-            velocity=v_s,
-            delta_e=delta_e,
-            created_utc=s_created_utc,
-            upvote_ratio=row.latest_upvote_ratio,
+        submission_metrics[s_id] = compute_submission_metrics(
+            created_utc=row.created_utc,
+            latest_score=row.latest_score,
+            latest_num_comments=row.latest_num_comments,
+            latest_upvote_ratio=row.latest_upvote_ratio,
+            snapshots=snapshots_by_sub.get(s_id, []),
             window=window,
             now=now,
+            t0=t0,
         )
 
-        submission_metrics[s_id] = {
-            "velocity": v_s,
-            "delta_e": delta_e,
-            "raw_hype": h_s,
-            "created_utc": s_created_utc,
-            "score": row.latest_score,
-            "num_comments": row.latest_num_comments,
+    # 24H submission metrics specifically for Newly Added evaluation
+    if window == "24H":
+        submission_metrics_24h = submission_metrics
+    else:
+        t0_24h = now - timedelta(hours=24)
+        submission_metrics_24h = {
+            row.submission_id: compute_submission_metrics(
+                created_utc=row.created_utc,
+                latest_score=row.latest_score,
+                latest_num_comments=row.latest_num_comments,
+                latest_upvote_ratio=row.latest_upvote_ratio,
+                snapshots=snapshots_by_sub.get(row.submission_id, []),
+                window="24H",
+                now=now,
+                t0=t0_24h,
+            )
+            for row in sub_rows
         }
+
+    # 24H cohort max for newly added scaling
+    max_rel_raw_24h = max(
+        (
+            sum(submission_metrics_24h[s]["raw_hype"] for s in release_submissions.get(str(r.id), set()))
+            for r in releases_rows
+        ),
+        default=0.0,
+    )
 
     # Group releases into derived albums
     albums_dict: dict[str, dict[str, Any]] = {}
@@ -354,6 +416,7 @@ def get_dashboard_data(
 
         alb["velocity"] = alb_velocity
         alb["raw_hype"] = alb_raw_hype
+        alb["submission_count"] = len(union_subs)
         alb["monogram_key"] = alb["album_id"]
 
     # Normalize albums Hype Index
@@ -393,6 +456,7 @@ def get_dashboard_data(
             hype_velocity=a["velocity"],
             tier=a["tier"],
             release_count=a["release_count"],
+            submission_count=a["submission_count"],
             monogram_key=a["monogram_key"],
         )
         for a in sorted_albums[:5]
@@ -424,7 +488,7 @@ def get_dashboard_data(
         for r in sorted_releases[:5]
     ]
 
-    # 3. Newly Added Releases (first seen within last 24h, up to 5)
+    # 3. Newly Added Releases (first seen within last 24h, up to 5, strictly evaluated in 24H window)
     cutoff_24h = now - timedelta(hours=24)
     newly_added_candidates = [
         r for r in release_dict.values() if r["first_seen_at"] >= cutoff_24h
@@ -433,22 +497,29 @@ def get_dashboard_data(
         newly_added_candidates,
         key=lambda r: (-r["first_seen_at"].timestamp(), r["release_id"]),
     )
-    newly_added = [
-        NewlyAddedReleaseItem(
-            release_id=r["release_id"],
-            album_id=r["album_id"],
-            album_title=r["album_title"],
-            combined_artist=r["combined_artist"],
-            variant=r["variant"],
-            retailer_name=r["retailer_name"],
-            hype_index=r["hype_index"],
-            hype_velocity=r["velocity"],
-            tier=r["tier"],
-            monogram_key=r["monogram_key"],
-            first_seen_at=r["first_seen_at"],
+    newly_added = []
+    for rel_item in sorted_newly_added[:5]:
+        rel_id = str(rel_item["release_id"])
+        rel_subs = release_submissions.get(rel_id, set())
+        rel_raw_24h = sum(submission_metrics_24h[s]["raw_hype"] for s in rel_subs)
+        rel_vel_24h = round(sum(submission_metrics_24h[s]["velocity"] for s in rel_subs), 1)
+        h_idx_24h = calculate_hype_index(rel_raw_24h, max_rel_raw_24h, REFERENCE_FLOOR)
+        newly_added.append(
+            NewlyAddedReleaseItem(
+                release_id=rel_id,
+                album_id=rel_item["album_id"],
+                album_title=rel_item["album_title"],
+                combined_artist=rel_item["combined_artist"],
+                variant=rel_item["variant"],
+                retailer_name=rel_item["retailer_name"],
+                hype_index=h_idx_24h,
+                hype_velocity=rel_vel_24h,
+                tier=get_hype_tier(h_idx_24h),
+                monogram_key=rel_item["monogram_key"],
+                first_seen_at=rel_item["first_seen_at"],
+                latest_score=rel_item["score"],
+            )
         )
-        for r in sorted_newly_added[:5]
-    ]
 
     # 4. Live Release Feed (up to 50 recent releases ordered by recency)
     sorted_feed = sorted(

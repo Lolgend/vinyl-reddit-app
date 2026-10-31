@@ -18,6 +18,7 @@ class AlbumLeaderboardItem(BaseModel):
     hype_velocity: float = Field(..., ge=0.0, description="Hype Velocity (+X.X pts/hr)")
     tier: Literal["high", "moderate", "low"] = Field(..., description="Qualitative demand tier")
     release_count: int = Field(..., ge=1, description="Number of child pressings under this album")
+    submission_count: int = Field(default=0, ge=0, description="Deduplicated union count of linked Reddit submissions")
     monogram_key: str = Field(..., description="Key for deterministic monogram styling")
 
 
@@ -50,6 +51,7 @@ class NewlyAddedReleaseItem(BaseModel):
     tier: Literal["high", "moderate", "low"] = Field(..., description="Qualitative demand tier")
     monogram_key: str = Field(..., description="Key for deterministic monogram styling")
     first_seen_at: datetime = Field(..., description="Timestamp when release was first discovered")
+    latest_score: int = Field(default=0, description="Latest Reddit upvote score")
 
 
 class LiveFeedItem(BaseModel):
@@ -66,14 +68,14 @@ class LiveFeedItem(BaseModel):
     tier: Literal["high", "moderate", "low"] = Field(..., description="Qualitative demand tier")
     score: int = Field(..., description="Latest Reddit upvote score")
     num_comments: int = Field(..., description="Latest Reddit comment count")
-    posted_at: datetime = Field(..., description="Reddit post or release discovery timestamp")
+    posted_at: datetime = Field(..., description="Reddit submission or release discovery timestamp")
     monogram_key: str = Field(..., description="Key for deterministic monogram styling")
 
 
 class DashboardResponse(BaseModel):
     """Compound response schema for GET /api/v1/dashboard."""
 
-    window: Literal["24H", "7D", "1M"] = Field(..., description="Active analysis timeframe window")
+    window: Literal["24H", "7D", "1M"] = Field(..., description="Active analysis window")
     top_albums: list[AlbumLeaderboardItem] = Field(..., description="Top 5 albums ranked by Hype Index")
     top_releases: list[ReleaseLeaderboardItem] = Field(..., description="Top 5 releases ranked by Hype Index")
     newly_added: list[NewlyAddedReleaseItem] = Field(..., description="Releases first seen in the last 24 hours")
