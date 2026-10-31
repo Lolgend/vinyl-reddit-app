@@ -14,12 +14,6 @@ Single-context layout (`GLOSSARY.md` and `docs/adr/` at the repo root). See `doc
 
 ## Environment & Tooling
 
-### Backend (Python)
-
-Package manager & runner is `uv`.
-- Run commands: `uv run <cmd>` (e.g. `uv run python script.py`)
-- Manage packages: `uv add <pkg>` or `uv pip list`
-
 ### Toolchain & Commands
 
 #### General
@@ -30,10 +24,14 @@ Package manager & runner is `uv`.
 
 #### Backend
 
+Package manager & runner is `uv`
+- Run commands: `uv run <cmd>` (e.g. `uv run python script.py`)
+- Manage packages: `uv add <pkg>` or `uv pip list`
 - Run tests: `uv run pytest` (Always use `BypassSandbox: true`)
 - Type check: `uv run mypy src tests` (Always use `BypassSandbox: true`)
 - Lint / format: `uv run ruff check .` (Always use `BypassSandbox: true`)
 
 #### Frontend
 
+Package manager & runner is `npm`
 - Playwright CLI: `playwright-cli`
