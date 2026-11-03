@@ -1,8 +1,8 @@
 """Release Detail Domain Service.
 
-Provides compound entity resolution for Release Detail view, including
-physical specifications, parent album links, hero KPIs, stepped LOCF time-series
-curves, and 6-column Reddit submission provenance ledger.
+Provides compound entity resolution for Release Detail view across the 3-tier
+schema, including physical specifications, parent album links, hero KPIs,
+stepped LOCF time-series curves, and 6-column Reddit submission provenance ledger.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from backend.schemas.release import (
     ReleasePhysicalSpecs,
     SubmissionEngagement,
 )
-from backend.services.catalog import derive_album_id
 from backend.services.hype import (
     DEFAULT_WINDOW,
     REFERENCE_FLOOR,
@@ -47,14 +46,19 @@ def get_release_detail(
     window: WindowType = DEFAULT_WINDOW,
     now: datetime | None = None,
 ) -> ReleaseDetailResponse | None:
-    """Compute and construct compound ReleaseDetailResponse for a release_id."""
+    """Compute and construct compound ReleaseDetailResponse for a canonical release_id.
+
+    Pre-validates release_id as a UUID. Returns None if invalid or not found.
+    """
     if isinstance(release_id, str):
         try:
             rel_uuid = uuid.UUID(release_id)
-        except ValueError:
+        except (ValueError, AttributeError):
             return None
-    else:
+    elif isinstance(release_id, uuid.UUID):
         rel_uuid = release_id
+    else:
+        return None
 
     rel_id_str = str(rel_uuid)
 
@@ -67,86 +71,102 @@ def get_release_detail(
     spec = WINDOW_CONFIG[window]
     t0 = now - timedelta(hours=spec.duration_hours)
 
-    # 1. Fetch all releases ordered by created_at ASC, id ASC for deterministic album display casing
-    release_sql = text(
-        r"""
-        SELECT
-            r.id,
-            r.combined_artist,
-            r.album_title,
-            r.variant,
-            r.retailer_name,
-            r.created_at,
-            LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(r.combined_artist, '[\u2010-\u2015\u2212]', '-', 'g'), '\s+', ' ', 'g'))) AS norm_artist,
-            LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(r.album_title, '[\u2010-\u2015\u2212]', '-', 'g'), '\s+', ' ', 'g'))) AS norm_album
-        FROM releases r
-        ORDER BY r.created_at ASC, r.id ASC
-        """
-    )
-    releases_rows = session.execute(release_sql).fetchall()
+    # 1. Fetch target release joined to parent album
+    target_row = session.execute(
+        text(
+            """
+            SELECT
+                r.id AS release_id,
+                r.album_id,
+                r.variant,
+                r.retailer_name,
+                r.created_at AS release_created_at,
+                a.title AS album_title,
+                a.combined_artist
+            FROM releases r
+            JOIN albums a ON r.album_id = a.id
+            WHERE r.id = :release_id
+            """
+        ),
+        {"release_id": rel_uuid},
+    ).fetchone()
 
-    albums_dict: dict[str, dict[str, Any]] = {}
-    target_row = None
-    target_album_id: str | None = None
-
-    for r in releases_rows:
-        r_str = str(r.id)
-        alb_id = derive_album_id(r.norm_artist, r.norm_album)
-
-        if alb_id not in albums_dict:
-            albums_dict[alb_id] = {
-                "album_id": alb_id,
-                "album_title": r.album_title,
-                "combined_artist": r.combined_artist,
-                "release_count": 1,
-            }
-        else:
-            albums_dict[alb_id]["release_count"] += 1
-
-        if r_str == rel_id_str:
-            target_row = r
-            target_album_id = alb_id
-
-    if target_row is None or target_album_id is None:
+    if target_row is None:
         return None
 
-    parent_album_dict = albums_dict[target_album_id]
+    target_album_uuid = target_row.album_id
+    target_album_id_str = str(target_album_uuid)
 
-    # 2. Fetch linked submissions where is_release = TRUE
-    sub_sql = text(
-        """
-        SELECT
-            sr.release_id,
-            s.id AS submission_id,
-            s.reddit_id,
-            s.title,
-            s.url,
-            s.created_utc,
-            s.latest_score,
-            s.latest_num_comments,
-            s.latest_upvote_ratio
-        FROM submission_releases sr
-        JOIN submissions s ON sr.submission_id = s.id
-        WHERE s.is_release = TRUE
-        """
-    )
-    sub_rows = session.execute(sub_sql).fetchall()
+    # 2. Count sibling releases under parent album
+    sibling_count_row = session.execute(
+        text(
+            """
+            SELECT COUNT(*) AS rel_count
+            FROM releases
+            WHERE album_id = :album_id
+            """
+        ),
+        {"album_id": target_album_uuid},
+    ).fetchone()
+    sibling_release_count = int(sibling_count_row[0]) if sibling_count_row else 1
 
-    # 3. Fetch snapshots for release submissions
-    snap_sql = text(
-        """
-        SELECT
-            ss.submission_id,
-            ss.score,
-            ss.num_comments,
-            ss.captured_at
-        FROM submission_snapshots ss
-        JOIN submissions s ON ss.submission_id = s.id
-        WHERE s.is_release = TRUE
-        ORDER BY ss.submission_id, ss.captured_at ASC
-        """
-    )
-    snap_rows = session.execute(snap_sql).fetchall()
+    # 3. Resolve primary artist_id deterministically from album_artists
+    primary_artist_row = session.execute(
+        text(
+            """
+            SELECT artist_id
+            FROM album_artists
+            WHERE album_id = :album_id
+            ORDER BY created_at ASC, artist_id ASC
+            LIMIT 1
+            """
+        ),
+        {"album_id": target_album_uuid},
+    ).fetchone()
+    primary_artist_id = str(primary_artist_row.artist_id) if primary_artist_row else None
+
+    # 4. Fetch all catalog releases for cohort scaling
+    releases_rows = session.execute(
+        text("SELECT id FROM releases ORDER BY created_at ASC, id ASC")
+    ).fetchall()
+
+    # 5. Fetch linked submissions where is_release = TRUE
+    sub_rows = session.execute(
+        text(
+            """
+            SELECT
+                sr.release_id,
+                s.id AS submission_id,
+                s.reddit_id,
+                s.title,
+                s.url,
+                s.created_utc,
+                s.latest_score,
+                s.latest_num_comments,
+                s.latest_upvote_ratio
+            FROM submission_releases sr
+            JOIN submissions s ON sr.submission_id = s.id
+            WHERE s.is_release = TRUE
+            """
+        )
+    ).fetchall()
+
+    # 6. Fetch snapshots for release submissions
+    snap_rows = session.execute(
+        text(
+            """
+            SELECT
+                ss.submission_id,
+                ss.score,
+                ss.num_comments,
+                ss.captured_at
+            FROM submission_snapshots ss
+            JOIN submissions s ON ss.submission_id = s.id
+            WHERE s.is_release = TRUE
+            ORDER BY ss.submission_id, ss.captured_at ASC
+            """
+        )
+    ).fetchall()
 
     snapshots_by_sub: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for sn in snap_rows:
@@ -218,8 +238,8 @@ def get_release_detail(
         total_comments = sum(s["latest_num_comments"] for s in target_subs_list)
         points_gain = sum(submission_metrics[s["id"]]["delta_e"] for s in target_subs_list)
     else:
-        first_seen_at = target_row.created_at
-        last_seen_at = target_row.created_at
+        first_seen_at = target_row.release_created_at
+        last_seen_at = target_row.release_created_at
         total_score = 0
         total_comments = 0
         points_gain = 0
@@ -267,32 +287,34 @@ def get_release_detail(
     # Sort provenance submissions chronologically DESC (most recent first)
     provenance_subs.sort(key=lambda x: x.created_utc, reverse=True)
 
-    variant_val = target_row.variant if target_row.variant and target_row.variant.strip() else "Standard Pressing"
-    retailer_val = target_row.retailer_name if target_row.retailer_name and target_row.retailer_name.strip() else "Wide / Unspecified"
-
-    art_row = session.execute(
-        text("SELECT artist_id FROM release_artists WHERE release_id = :r_id LIMIT 1"),
-        {"r_id": rel_id_str},
-    ).fetchone()
-    artist_id = str(art_row.artist_id) if art_row else None
+    variant_val = (
+        target_row.variant
+        if target_row.variant and target_row.variant.strip()
+        else "Standard Pressing"
+    )
+    retailer_val = (
+        target_row.retailer_name
+        if target_row.retailer_name and target_row.retailer_name.strip()
+        else "Wide / Unspecified"
+    )
 
     specs = ReleasePhysicalSpecs(
         release_id=rel_id_str,
-        album_id=target_album_id,
-        album_title=parent_album_dict["album_title"],
+        album_id=target_album_id_str,
+        album_title=target_row.album_title,
         combined_artist=target_row.combined_artist,
         variant=variant_val,
         retailer_name=retailer_val,
         first_seen_at=first_seen_at,
         last_seen_at=last_seen_at,
         monogram_key=rel_id_str,
-        artist_id=artist_id,
+        artist_id=primary_artist_id,
     )
 
     parent_album = ParentAlbumInfo(
-        album_id=target_album_id,
-        album_title=parent_album_dict["album_title"],
-        release_count=parent_album_dict["release_count"],
+        album_id=target_album_id_str,
+        album_title=target_row.album_title,
+        release_count=sibling_release_count,
     )
 
     upvote_ratios = [
@@ -337,8 +359,8 @@ def get_release_detail(
 
     return ReleaseDetailResponse(
         release_id=rel_id_str,
-        album_id=target_album_id,
-        album_title=parent_album_dict["album_title"],
+        album_id=target_album_id_str,
+        album_title=target_row.album_title,
         combined_artist=target_row.combined_artist,
         variant=variant_val,
         retailer_name=retailer_val,
