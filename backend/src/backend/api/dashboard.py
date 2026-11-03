@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import get_db
 from backend.schemas.dashboard import DashboardResponse
-from backend.services.hype import get_dashboard_data
+from backend.services.dashboard import get_dashboard_data
 
 router = APIRouter()
 
