@@ -8,9 +8,7 @@ stepped LOCF time-series curves, and 6-column Reddit submission provenance ledge
 from __future__ import annotations
 
 import uuid
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -31,7 +29,7 @@ from backend.services.hype import (
     WINDOW_CONFIG,
     WindowType,
     calculate_hype_index,
-    compute_submission_metrics,
+    fetch_submissions_and_metrics,
     get_hype_tier,
 )
 from backend.services.timeseries import (
@@ -130,88 +128,12 @@ def get_release_detail(
         text("SELECT id FROM releases ORDER BY created_at ASC, id ASC")
     ).fetchall()
 
-    # 5. Fetch linked submissions where is_release = TRUE
-    sub_rows = session.execute(
-        text(
-            """
-            SELECT
-                sr.release_id,
-                s.id AS submission_id,
-                s.reddit_id,
-                s.title,
-                s.url,
-                s.created_utc,
-                s.latest_score,
-                s.latest_num_comments,
-                s.latest_upvote_ratio
-            FROM submission_releases sr
-            JOIN submissions s ON sr.submission_id = s.id
-            WHERE s.is_release = TRUE
-            """
-        )
-    ).fetchall()
-
-    # 6. Fetch snapshots for release submissions
-    snap_rows = session.execute(
-        text(
-            """
-            SELECT
-                ss.submission_id,
-                ss.score,
-                ss.num_comments,
-                ss.captured_at
-            FROM submission_snapshots ss
-            JOIN submissions s ON ss.submission_id = s.id
-            WHERE s.is_release = TRUE
-            ORDER BY ss.submission_id, ss.captured_at ASC
-            """
-        )
-    ).fetchall()
-
-    snapshots_by_sub: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for sn in snap_rows:
-        snapshots_by_sub[sn.submission_id].append(
-            {
-                "captured_at": sn.captured_at,
-                "score": sn.score,
-                "num_comments": sn.num_comments,
-            }
-        )
-
-    # Compute submission metrics
-    submission_metrics: dict[str, dict[str, Any]] = {}
-    release_submissions: dict[str, set[str]] = defaultdict(set)
-    submissions_by_id: dict[str, dict[str, Any]] = {}
-
-    for row in sub_rows:
-        s_id = row.submission_id
-        r_id = str(row.release_id)
-        release_submissions[r_id].add(s_id)
-
-        submissions_by_id[s_id] = {
-            "id": s_id,
-            "reddit_id": row.reddit_id,
-            "title": row.title,
-            "url": row.url,
-            "created_utc": row.created_utc,
-            "latest_score": row.latest_score,
-            "latest_num_comments": row.latest_num_comments,
-            "latest_upvote_ratio": row.latest_upvote_ratio,
-        }
-
-        if s_id in submission_metrics:
-            continue
-
-        submission_metrics[s_id] = compute_submission_metrics(
-            created_utc=row.created_utc,
-            latest_score=row.latest_score,
-            latest_num_comments=row.latest_num_comments,
-            latest_upvote_ratio=row.latest_upvote_ratio,
-            snapshots=snapshots_by_sub.get(s_id, []),
-            window=window,
-            now=now,
-            t0=t0,
-        )
+    # 5. Fetch linked submissions and compute metrics via shared helper
+    cohort = fetch_submissions_and_metrics(session=session, window=window, now=now)
+    submission_metrics = cohort.submission_metrics
+    release_submissions = cohort.release_submissions
+    submissions_by_id = cohort.submissions_by_id
+    snapshots_by_sub = cohort.snapshots_by_sub
 
     # Compute raw hypes across all releases for cohort scaling
     release_raw_hypes: dict[str, float] = {}
@@ -322,11 +244,7 @@ def get_release_detail(
         for s in target_subs_list
         if s.get("latest_upvote_ratio") is not None
     ]
-    avg_upvote_ratio = (
-        round(sum(upvote_ratios) / len(upvote_ratios), 2)
-        if upvote_ratios
-        else None
-    )
+    avg_upvote_ratio = round(sum(upvote_ratios) / len(upvote_ratios), 2) if upvote_ratios else None
 
     submission_engagement = SubmissionEngagement(
         points_gain=points_gain,

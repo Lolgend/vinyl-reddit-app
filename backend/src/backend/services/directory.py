@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from sqlalchemy import text
@@ -32,7 +32,7 @@ from backend.services.hype import (
     WINDOW_CONFIG,
     WindowType,
     calculate_hype_index,
-    compute_submission_metrics,
+    fetch_submissions_and_metrics,
     get_hype_tier,
 )
 
@@ -53,9 +53,6 @@ def _compute_directory_cohorts(
     if now is None:
         now = datetime.now(timezone.utc)
 
-    spec = WINDOW_CONFIG[window]
-    t0 = now - timedelta(hours=spec.duration_hours)
-
     # 1. Fetch releases joined with parent albums in deterministic earliest-ingested order
     rel_rows = session.execute(
         text(
@@ -75,67 +72,10 @@ def _compute_directory_cohorts(
         )
     ).fetchall()
 
-    # 2. Fetch linked release submissions
-    sub_rows = session.execute(
-        text(
-            """
-            SELECT
-                sr.release_id,
-                s.id AS submission_id,
-                s.created_utc,
-                s.latest_score,
-                s.latest_num_comments,
-                s.latest_upvote_ratio
-            FROM submission_releases sr
-            JOIN submissions s ON sr.submission_id = s.id
-            WHERE s.is_release = TRUE
-            """
-        )
-    ).fetchall()
-
-    # 3. Fetch snapshots
-    snap_rows = session.execute(
-        text(
-            """
-            SELECT
-                ss.submission_id,
-                ss.score,
-                ss.num_comments,
-                ss.captured_at
-            FROM submission_snapshots ss
-            JOIN submissions s ON ss.submission_id = s.id
-            WHERE s.is_release = TRUE
-            ORDER BY ss.submission_id, ss.captured_at ASC
-            """
-        )
-    ).fetchall()
-
-    snapshots_by_sub: dict[str, list[Any]] = defaultdict(list)
-    for sn in snap_rows:
-        snapshots_by_sub[sn.submission_id].append(sn)
-
-    # 4. Compute submission metrics
-    submission_metrics: dict[str, dict[str, Any]] = {}
-    release_submissions: dict[str, set[str]] = defaultdict(set)
-
-    for row in sub_rows:
-        s_id = row.submission_id
-        r_id = str(row.release_id)
-        release_submissions[r_id].add(s_id)
-
-        if s_id in submission_metrics:
-            continue
-
-        submission_metrics[s_id] = compute_submission_metrics(
-            created_utc=row.created_utc,
-            latest_score=row.latest_score,
-            latest_num_comments=row.latest_num_comments,
-            latest_upvote_ratio=row.latest_upvote_ratio,
-            snapshots=snapshots_by_sub.get(s_id, []),
-            window=window,
-            now=now,
-            t0=t0,
-        )
+    # 2. Fetch linked submissions and compute metrics via shared helper
+    cohort = fetch_submissions_and_metrics(session=session, window=window, now=now)
+    submission_metrics = cohort.submission_metrics
+    release_submissions = cohort.release_submissions
 
     # 5. Fetch all persisted albums
     alb_rows = session.execute(
@@ -237,17 +177,15 @@ def _compute_directory_cohorts(
 
         # Attribution: classify via album_artists
         linked_artists = album_artists_by_alb.get(alb_id, [])
-        if len(linked_artists) == 1:
-            attr = classify_artist_attribution(
-                artist_name=linked_artists[0],
-                combined_artist=alb_row.combined_artist,
-                linked_artist_count=1,
-            )
-            alb_attribution: Literal["solo", "combined"] = "solo" if attr == "solo" else "combined"
-        else:
-            alb_attribution = "combined"
+        primary_artist = linked_artists[0] if linked_artists else None
+        attr = classify_artist_attribution(
+            artist_name=primary_artist,
+            combined_artist=alb_row.combined_artist,
+            linked_artist_count=len(linked_artists),
+        )
+        alb_attribution: Literal["solo", "combined"] = "solo" if attr == "solo" else "combined"
 
-        earliest_created_at = child_rels[0].created_at if child_rels else alb_row.created_at
+        alb_created_at = child_rels[0].created_at if child_rels else alb_row.created_at
 
         alb_data = {
             "album_id": alb_id,
@@ -263,7 +201,7 @@ def _compute_directory_cohorts(
             "raw_hype": alb_raw_hype,
             "attribution": alb_attribution,
             "monogram_key": alb_id,
-            "created_at": earliest_created_at,
+            "created_at": alb_created_at,
         }
         raw_albums.append(alb_data)
 
@@ -532,9 +470,7 @@ def get_directory_albums(
     # Retailer filter
     if retailer and retailer.strip() and retailer.strip().lower() not in ("all", "none"):
         ret_norm = retailer.strip().lower()
-        filtered = [
-            a for a in filtered if any(r.strip().lower() == ret_norm for r in a.retailers)
-        ]
+        filtered = [a for a in filtered if any(r.strip().lower() == ret_norm for r in a.retailers)]
 
     # Attribution filter (solo vs combined)
     if attribution and attribution.lower() in ("solo", "combined"):

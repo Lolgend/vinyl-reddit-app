@@ -7,13 +7,13 @@ window-decayed raw hype signals, and cohort-normalized Hype Index (0-100).
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
-
-from backend.schemas.dashboard import DashboardResponse
 
 WindowType = Literal["24H", "7D", "1M"]
 
@@ -122,10 +122,7 @@ def normalize_cohort_hype(
     if not raw_hypes:
         return []
     cohort_max = max(raw_hypes)
-    return [
-        calculate_hype_index(h, cohort_max, reference_floor)
-        for h in raw_hypes
-    ]
+    return [calculate_hype_index(h, cohort_max, reference_floor) for h in raw_hypes]
 
 
 def get_hype_tier(hype_index: int) -> Literal["high", "moderate", "low"]:
@@ -184,7 +181,9 @@ def compute_submission_metrics(
             snaps_in_window = [sn for sn in snapshots if _get(sn, "captured_at") > t0]
             if snaps_in_window:
                 anchor_snap = snaps_in_window[0]
-                e_base = calculate_points(_get(anchor_snap, "score"), _get(anchor_snap, "num_comments"))
+                e_base = calculate_points(
+                    _get(anchor_snap, "score"), _get(anchor_snap, "num_comments")
+                )
                 t_base = _get(anchor_snap, "captured_at")
             else:
                 e_base = calculate_points(latest_score, latest_num_comments)
@@ -218,21 +217,146 @@ def compute_submission_metrics(
     }
 
 
-def get_dashboard_data(
+@dataclass(frozen=True)
+class SubmissionsCohortData:
+    """Precomputed submissions and snapshots cohort metrics across active window."""
+
+    submission_metrics: dict[str, dict[str, Any]]
+    release_submissions: dict[str, set[str]]
+    submissions_by_id: dict[str, dict[str, Any]]
+    snapshots_by_sub: dict[str, list[dict[str, Any]]]
+    window: WindowType
+    now: datetime
+
+    def get_metrics_24h(self) -> dict[str, dict[str, Any]]:
+        """Return 24H metrics (used for dashboard newly added scoring)."""
+        if self.window == "24H":
+            return self.submission_metrics
+        t0_24h = self.now - timedelta(hours=24)
+        return {
+            s_id: compute_submission_metrics(
+                created_utc=sub["created_utc"],
+                latest_score=sub["latest_score"],
+                latest_num_comments=sub["latest_num_comments"],
+                latest_upvote_ratio=sub["latest_upvote_ratio"],
+                snapshots=self.snapshots_by_sub.get(s_id, []),
+                window="24H",
+                now=self.now,
+                t0=t0_24h,
+            )
+            for s_id, sub in self.submissions_by_id.items()
+        }
+
+
+def fetch_submissions_and_metrics(
     session: Session,
     window: WindowType = DEFAULT_WINDOW,
     now: datetime | None = None,
-) -> DashboardResponse:
-    """Compute and construct compound Dashboard response for the given window."""
-    from backend.services.dashboard import get_dashboard_data as _get_dashboard_data
+) -> SubmissionsCohortData:
+    """Fetch all release submissions, snapshots, and compute window engagement metrics."""
+    if window not in WINDOW_CONFIG:
+        window = DEFAULT_WINDOW
 
-    return _get_dashboard_data(session=session, window=window, now=now)
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    spec = WINDOW_CONFIG[window]
+    t0 = now - timedelta(hours=spec.duration_hours)
+
+    sub_rows = session.execute(
+        text(
+            """
+            SELECT
+                sr.release_id,
+                s.id AS submission_id,
+                s.reddit_id,
+                s.title,
+                s.url,
+                s.created_utc,
+                s.latest_score,
+                s.latest_num_comments,
+                s.latest_upvote_ratio
+            FROM submission_releases sr
+            JOIN submissions s ON sr.submission_id = s.id
+            WHERE s.is_release = TRUE
+            """
+        )
+    ).fetchall()
+
+    snap_rows = session.execute(
+        text(
+            """
+            SELECT
+                ss.submission_id,
+                ss.score,
+                ss.num_comments,
+                ss.captured_at
+            FROM submission_snapshots ss
+            JOIN submissions s ON ss.submission_id = s.id
+            WHERE s.is_release = TRUE
+            ORDER BY ss.submission_id, ss.captured_at ASC
+            """
+        )
+    ).fetchall()
+
+    snapshots_by_sub: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for sn in snap_rows:
+        snapshots_by_sub[sn.submission_id].append(
+            {
+                "captured_at": sn.captured_at,
+                "score": sn.score,
+                "num_comments": sn.num_comments,
+            }
+        )
+
+    submission_metrics: dict[str, dict[str, Any]] = {}
+    release_submissions: dict[str, set[str]] = defaultdict(set)
+    submissions_by_id: dict[str, dict[str, Any]] = {}
+
+    for row in sub_rows:
+        s_id = str(row.submission_id)
+        r_id = str(row.release_id)
+        release_submissions[r_id].add(s_id)
+
+        if s_id not in submissions_by_id:
+            submissions_by_id[s_id] = {
+                "id": s_id,
+                "reddit_id": row.reddit_id,
+                "title": row.title,
+                "url": row.url,
+                "created_utc": row.created_utc,
+                "latest_score": row.latest_score,
+                "latest_num_comments": row.latest_num_comments,
+                "latest_upvote_ratio": row.latest_upvote_ratio,
+            }
+
+        if s_id not in submission_metrics:
+            submission_metrics[s_id] = compute_submission_metrics(
+                created_utc=row.created_utc,
+                latest_score=row.latest_score,
+                latest_num_comments=row.latest_num_comments,
+                latest_upvote_ratio=row.latest_upvote_ratio,
+                snapshots=snapshots_by_sub.get(s_id, []),
+                window=window,
+                now=now,
+                t0=t0,
+            )
+
+    return SubmissionsCohortData(
+        submission_metrics=submission_metrics,
+        release_submissions=release_submissions,
+        submissions_by_id=submissions_by_id,
+        snapshots_by_sub=snapshots_by_sub,
+        window=window,
+        now=now,
+    )
 
 
 __all__ = [
     "DEFAULT_WINDOW",
     "REFERENCE_FLOOR",
     "WINDOW_CONFIG",
+    "SubmissionsCohortData",
     "WindowSpec",
     "WindowType",
     "calculate_hype_index",
@@ -240,7 +364,7 @@ __all__ = [
     "calculate_raw_hype",
     "calculate_velocity",
     "compute_submission_metrics",
-    "get_dashboard_data",
+    "fetch_submissions_and_metrics",
     "get_hype_tier",
     "normalize_cohort_hype",
 ]

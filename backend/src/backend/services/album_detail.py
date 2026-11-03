@@ -33,7 +33,7 @@ from backend.services.hype import (
     WINDOW_CONFIG,
     WindowType,
     calculate_hype_index,
-    compute_submission_metrics,
+    fetch_submissions_and_metrics,
     get_hype_tier,
 )
 from backend.services.timeseries import (
@@ -104,8 +104,7 @@ def get_album_detail(
     ).fetchall()
 
     target_artists = [
-        ArtistRef(artist_id=str(row.artist_id), name=row.artist_name)
-        for row in artist_rows
+        ArtistRef(artist_id=str(row.artist_id), name=row.artist_name) for row in artist_rows
     ]
 
     # 3. Fetch all catalog releases with album_id for cohort scaling
@@ -121,84 +120,12 @@ def get_album_detail(
 
     target_releases = [r for r in releases_rows if r.album_id == album_uuid]
 
-    # 4. Fetch linked submissions where is_release = TRUE
-    sub_rows = session.execute(
-        text(
-            """
-            SELECT
-                sr.release_id,
-                s.id AS submission_id,
-                s.title,
-                s.created_utc,
-                s.latest_score,
-                s.latest_num_comments,
-                s.latest_upvote_ratio
-            FROM submission_releases sr
-            JOIN submissions s ON sr.submission_id = s.id
-            WHERE s.is_release = TRUE
-            """
-        )
-    ).fetchall()
-
-    # 5. Fetch snapshots for release submissions
-    snap_rows = session.execute(
-        text(
-            """
-            SELECT
-                ss.submission_id,
-                ss.score,
-                ss.num_comments,
-                ss.captured_at
-            FROM submission_snapshots ss
-            JOIN submissions s ON ss.submission_id = s.id
-            WHERE s.is_release = TRUE
-            ORDER BY ss.submission_id, ss.captured_at ASC
-            """
-        )
-    ).fetchall()
-
-    snapshots_by_sub: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for sn in snap_rows:
-        snapshots_by_sub[sn.submission_id].append(
-            {
-                "captured_at": sn.captured_at,
-                "score": sn.score,
-                "num_comments": sn.num_comments,
-            }
-        )
-
-    # Compute submission metrics
-    submission_metrics: dict[str, dict[str, Any]] = {}
-    release_submissions: dict[str, set[str]] = defaultdict(set)
-    submissions_by_id: dict[str, dict[str, Any]] = {}
-
-    for row in sub_rows:
-        s_id = row.submission_id
-        r_id = str(row.release_id)
-        release_submissions[r_id].add(s_id)
-
-        submissions_by_id[s_id] = {
-            "id": s_id,
-            "title": row.title,
-            "created_utc": row.created_utc,
-            "latest_score": row.latest_score,
-            "latest_num_comments": row.latest_num_comments,
-            "latest_upvote_ratio": row.latest_upvote_ratio,
-        }
-
-        if s_id in submission_metrics:
-            continue
-
-        submission_metrics[s_id] = compute_submission_metrics(
-            created_utc=row.created_utc,
-            latest_score=row.latest_score,
-            latest_num_comments=row.latest_num_comments,
-            latest_upvote_ratio=row.latest_upvote_ratio,
-            snapshots=snapshots_by_sub.get(s_id, []),
-            window=window,
-            now=now,
-            t0=t0,
-        )
+    # 4. Fetch linked submissions and compute metrics via shared helper
+    cohort = fetch_submissions_and_metrics(session=session, window=window, now=now)
+    submission_metrics = cohort.submission_metrics
+    release_submissions = cohort.release_submissions
+    submissions_by_id = cohort.submissions_by_id
+    snapshots_by_sub = cohort.snapshots_by_sub
 
     # Map releases by album for cohort calculations
     album_releases_map: dict[str, list[str]] = defaultdict(list)
@@ -231,9 +158,13 @@ def get_album_detail(
         target_union_subs.update(release_submissions.get(str(r.id), set()))
 
     target_raw_hype = sum(submission_metrics[s]["raw_hype"] for s in target_union_subs)
-    target_album_hype_index = calculate_hype_index(target_raw_hype, cohort_max_album, REFERENCE_FLOOR)
+    target_album_hype_index = calculate_hype_index(
+        target_raw_hype, cohort_max_album, REFERENCE_FLOOR
+    )
     target_album_tier = get_hype_tier(target_album_hype_index)
-    target_album_velocity = round(sum(submission_metrics[s]["velocity"] for s in target_union_subs), 1)
+    target_album_velocity = round(
+        sum(submission_metrics[s]["velocity"] for s in target_union_subs), 1
+    )
 
     target_subs_list = [submissions_by_id[s_id] for s_id in target_union_subs]
 
@@ -277,8 +208,7 @@ def get_album_detail(
     for r in target_releases:
         rel_id = str(r.id)
         subs_by_release_map[rel_id] = [
-            submissions_by_id[s_id]
-            for s_id in release_submissions.get(rel_id, set())
+            submissions_by_id[s_id] for s_id in release_submissions.get(rel_id, set())
         ]
 
     raw_shares = calculate_share_of_demand(target_rel_dicts, subs_by_release_map)

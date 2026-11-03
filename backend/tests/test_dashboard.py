@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from backend.main import app
-from backend.services.hype import get_dashboard_data
+from backend.services.dashboard import get_dashboard_data
 
 
 @pytest.fixture

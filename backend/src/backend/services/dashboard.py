@@ -27,7 +27,7 @@ from backend.services.hype import (
     WINDOW_CONFIG,
     WindowType,
     calculate_hype_index,
-    compute_submission_metrics,
+    fetch_submissions_and_metrics,
     get_hype_tier,
 )
 
@@ -43,9 +43,6 @@ def get_dashboard_data(
 
     if now is None:
         now = datetime.now(timezone.utc)
-
-    spec = WINDOW_CONFIG[window]
-    t0 = now - timedelta(hours=spec.duration_hours)
 
     # 1. Fetch all persisted albums from the albums table using catalog helper
     catalog_albums = get_catalog_albums(session)
@@ -68,90 +65,19 @@ def get_dashboard_data(
     )
     releases_rows = session.execute(releases_sql).fetchall()
 
-    # 3. Fetch linked submissions where is_release = TRUE
-    sub_sql = text(
-        """
-        SELECT
-            sr.release_id,
-            s.id AS submission_id,
-            s.created_utc,
-            s.latest_score,
-            s.latest_num_comments,
-            s.latest_upvote_ratio
-        FROM submission_releases sr
-        JOIN submissions s ON sr.submission_id = s.id
-        WHERE s.is_release = TRUE
-        """
-    )
-    sub_rows = session.execute(sub_sql).fetchall()
-
-    # 4. Fetch snapshots for release submissions
-    snap_sql = text(
-        """
-        SELECT
-            ss.submission_id,
-            ss.score,
-            ss.num_comments,
-            ss.captured_at
-        FROM submission_snapshots ss
-        JOIN submissions s ON ss.submission_id = s.id
-        WHERE s.is_release = TRUE
-        ORDER BY ss.submission_id, ss.captured_at ASC
-        """
-    )
-    snap_rows = session.execute(snap_sql).fetchall()
-
-    # Group snapshots by submission_id
-    snapshots_by_sub: dict[str, list[Any]] = defaultdict(list)
-    for sn in snap_rows:
-        snapshots_by_sub[sn.submission_id].append(sn)
-
-    # Compute submission metrics
-    submission_metrics: dict[str, dict[str, Any]] = {}
-    release_submissions: dict[str, set[str]] = defaultdict(set)
-
-    for row in sub_rows:
-        s_id = row.submission_id
-        r_id = str(row.release_id)
-        release_submissions[r_id].add(s_id)
-
-        if s_id in submission_metrics:
-            continue
-
-        submission_metrics[s_id] = compute_submission_metrics(
-            created_utc=row.created_utc,
-            latest_score=row.latest_score,
-            latest_num_comments=row.latest_num_comments,
-            latest_upvote_ratio=row.latest_upvote_ratio,
-            snapshots=snapshots_by_sub.get(s_id, []),
-            window=window,
-            now=now,
-            t0=t0,
-        )
-
-    # 24H submission metrics specifically for Newly Added evaluation
-    if window == "24H":
-        submission_metrics_24h = submission_metrics
-    else:
-        t0_24h = now - timedelta(hours=24)
-        submission_metrics_24h = {
-            row.submission_id: compute_submission_metrics(
-                created_utc=row.created_utc,
-                latest_score=row.latest_score,
-                latest_num_comments=row.latest_num_comments,
-                latest_upvote_ratio=row.latest_upvote_ratio,
-                snapshots=snapshots_by_sub.get(row.submission_id, []),
-                window="24H",
-                now=now,
-                t0=t0_24h,
-            )
-            for row in sub_rows
-        }
+    # 3. Fetch linked submissions and compute metrics via shared helper
+    cohort = fetch_submissions_and_metrics(session=session, window=window, now=now)
+    submission_metrics = cohort.submission_metrics
+    release_submissions = cohort.release_submissions
+    submission_metrics_24h = cohort.get_metrics_24h()
 
     # 24H cohort max for newly added scaling
     max_rel_raw_24h = max(
         (
-            sum(submission_metrics_24h[s]["raw_hype"] for s in release_submissions.get(str(r.id), set()))
+            sum(
+                submission_metrics_24h[s]["raw_hype"]
+                for s in release_submissions.get(str(r.id), set())
+            )
             for r in releases_rows
         ),
         default=0.0,
@@ -297,9 +223,7 @@ def get_dashboard_data(
 
     # 3. Newly Added Releases (first seen within last 24h, up to 5, strictly evaluated in 24H window)
     cutoff_24h = now - timedelta(hours=24)
-    newly_added_candidates = [
-        r for r in release_dict.values() if r["first_seen_at"] >= cutoff_24h
-    ]
+    newly_added_candidates = [r for r in release_dict.values() if r["first_seen_at"] >= cutoff_24h]
     sorted_newly_added = sorted(
         newly_added_candidates,
         key=lambda r: (-r["first_seen_at"].timestamp(), r["release_id"]),
