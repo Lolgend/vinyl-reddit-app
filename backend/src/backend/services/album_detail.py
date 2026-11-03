@@ -1,12 +1,13 @@
 """Album Detail Domain Service.
 
-Provides compound entity resolution for Album Detail view, including
-identity derivations, hero KPIs, LOCF time-series buckets, submission event
-markers, child pressing share-of-demand, and comparison matrix.
+Provides compound entity resolution for Album Detail view across the 3-tier
+schema, including identity derivations, hero KPIs, LOCF time-series buckets,
+submission event markers, child pressing share-of-demand, and comparison matrix.
 """
 
 from __future__ import annotations
 
+import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -26,7 +27,6 @@ from backend.schemas.album import (
     SubmissionMarker,
     TimeSeriesBucket,
 )
-from backend.services.catalog import derive_album_id
 from backend.services.hype import (
     DEFAULT_WINDOW,
     REFERENCE_FLOOR,
@@ -45,11 +45,24 @@ from backend.services.timeseries import (
 
 def get_album_detail(
     session: Session,
-    album_id: str,
+    album_id: str | uuid.UUID,
     window: WindowType = DEFAULT_WINDOW,
     now: datetime | None = None,
 ) -> AlbumDetailResponse | None:
-    """Compute and construct compound AlbumDetailResponse for a derived album_id."""
+    """Compute and construct compound AlbumDetailResponse for a canonical album_id.
+
+    Pre-validates album_id as a UUID. Returns None if invalid or not found.
+    """
+    if isinstance(album_id, str):
+        try:
+            album_uuid = uuid.UUID(album_id)
+        except (ValueError, AttributeError):
+            return None
+    elif isinstance(album_id, uuid.UUID):
+        album_uuid = album_id
+    else:
+        return None
+
     if window not in WINDOW_CONFIG:
         window = DEFAULT_WINDOW
 
@@ -59,87 +72,91 @@ def get_album_detail(
     spec = WINDOW_CONFIG[window]
     t0 = now - timedelta(hours=spec.duration_hours)
 
-    # 1. Fetch all releases ordered by created_at ASC, id ASC for deterministic album display casing
-    release_sql = text(
-        r"""
-        SELECT
-            r.id,
-            r.combined_artist,
-            r.album_title,
-            r.variant,
-            r.retailer_name,
-            r.created_at,
-            LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(r.combined_artist, '[\u2010-\u2015\u2212]', '-', 'g'), '\s+', ' ', 'g'))) AS norm_artist,
-            LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(r.album_title, '[\u2010-\u2015\u2212]', '-', 'g'), '\s+', ' ', 'g'))) AS norm_album
-        FROM releases r
-        ORDER BY r.created_at ASC, r.id ASC
-        """
-    )
-    releases_rows = session.execute(release_sql).fetchall()
+    # 1. Fetch target album directly from albums table
+    target_album_row = session.execute(
+        text(
+            """
+            SELECT id, combined_artist, title, created_at
+            FROM albums
+            WHERE id = :album_id
+            """
+        ),
+        {"album_id": album_uuid},
+    ).fetchone()
 
-    # Group releases into derived albums
-    albums_dict: dict[str, dict[str, Any]] = {}
-    target_album: dict[str, Any] | None = None
-
-    for r in releases_rows:
-        rel_id = str(r.id)
-        alb_id = derive_album_id(r.norm_artist, r.norm_album)
-
-        if alb_id not in albums_dict:
-            albums_dict[alb_id] = {
-                "album_id": alb_id,
-                "album_title": r.album_title,
-                "combined_artist": r.combined_artist,
-                "release_count": 1,
-                "earliest_created_at": r.created_at,
-                "release_ids": [rel_id],
-                "releases": [r],
-            }
-        else:
-            albums_dict[alb_id]["release_count"] += 1
-            albums_dict[alb_id]["release_ids"].append(rel_id)
-            albums_dict[alb_id]["releases"].append(r)
-
-    if album_id not in albums_dict:
+    if target_album_row is None:
         return None
 
-    target_album = albums_dict[album_id]
+    target_album_id_str = str(target_album_row.id)
 
-    # 2. Fetch linked submissions where is_release = TRUE
-    sub_sql = text(
-        """
-        SELECT
-            sr.release_id,
-            s.id AS submission_id,
-            s.title,
-            s.created_utc,
-            s.latest_score,
-            s.latest_num_comments,
-            s.latest_upvote_ratio
-        FROM submission_releases sr
-        JOIN submissions s ON sr.submission_id = s.id
-        WHERE s.is_release = TRUE
-        """
-    )
-    sub_rows = session.execute(sub_sql).fetchall()
+    # 2. Fetch contributing artist chips directly from album_artists
+    artist_rows = session.execute(
+        text(
+            """
+            SELECT a.id AS artist_id, a.name AS artist_name
+            FROM album_artists aa
+            JOIN artists a ON aa.artist_id = a.id
+            WHERE aa.album_id = :album_id
+            ORDER BY a.name ASC, a.id ASC
+            """
+        ),
+        {"album_id": album_uuid},
+    ).fetchall()
 
-    # 3. Fetch snapshots for release submissions
-    snap_sql = text(
-        """
-        SELECT
-            ss.submission_id,
-            ss.score,
-            ss.num_comments,
-            ss.captured_at
-        FROM submission_snapshots ss
-        JOIN submissions s ON ss.submission_id = s.id
-        WHERE s.is_release = TRUE
-        ORDER BY ss.submission_id, ss.captured_at ASC
-        """
-    )
-    snap_rows = session.execute(snap_sql).fetchall()
+    target_artists = [
+        ArtistRef(artist_id=str(row.artist_id), name=row.artist_name)
+        for row in artist_rows
+    ]
 
-    # Group snapshots by submission_id
+    # 3. Fetch all catalog releases with album_id for cohort scaling
+    releases_rows = session.execute(
+        text(
+            """
+            SELECT id, album_id, variant, retailer_name, created_at
+            FROM releases
+            ORDER BY created_at ASC, id ASC
+            """
+        )
+    ).fetchall()
+
+    target_releases = [r for r in releases_rows if r.album_id == album_uuid]
+
+    # 4. Fetch linked submissions where is_release = TRUE
+    sub_rows = session.execute(
+        text(
+            """
+            SELECT
+                sr.release_id,
+                s.id AS submission_id,
+                s.title,
+                s.created_utc,
+                s.latest_score,
+                s.latest_num_comments,
+                s.latest_upvote_ratio
+            FROM submission_releases sr
+            JOIN submissions s ON sr.submission_id = s.id
+            WHERE s.is_release = TRUE
+            """
+        )
+    ).fetchall()
+
+    # 5. Fetch snapshots for release submissions
+    snap_rows = session.execute(
+        text(
+            """
+            SELECT
+                ss.submission_id,
+                ss.score,
+                ss.num_comments,
+                ss.captured_at
+            FROM submission_snapshots ss
+            JOIN submissions s ON ss.submission_id = s.id
+            WHERE s.is_release = TRUE
+            ORDER BY ss.submission_id, ss.captured_at ASC
+            """
+        )
+    ).fetchall()
+
     snapshots_by_sub: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for sn in snap_rows:
         snapshots_by_sub[sn.submission_id].append(
@@ -148,24 +165,6 @@ def get_album_detail(
                 "score": sn.score,
                 "num_comments": sn.num_comments,
             }
-        )
-
-    # 4. Fetch artist links
-    artist_sql = text(
-        """
-        SELECT
-            ra.release_id,
-            a.id AS artist_id,
-            a.name AS artist_name
-        FROM release_artists ra
-        JOIN artists a ON ra.artist_id = a.id
-        """
-    )
-    artist_rows = session.execute(artist_sql).fetchall()
-    artists_by_release: dict[str, list[ArtistRef]] = defaultdict(list)
-    for ar in artist_rows:
-        artists_by_release[str(ar.release_id)].append(
-            ArtistRef(artist_id=str(ar.artist_id), name=ar.artist_name)
         )
 
     # Compute submission metrics
@@ -201,21 +200,21 @@ def get_album_detail(
             t0=t0,
         )
 
+    # Map releases by album for cohort calculations
+    album_releases_map: dict[str, list[str]] = defaultdict(list)
+    for r in releases_rows:
+        album_releases_map[str(r.album_id)].append(str(r.id))
+
     # Compute raw hypes across all albums and releases for cohort scaling
     album_raw_hypes: list[float] = []
     release_raw_hypes: dict[str, float] = {}
 
-    for alb in albums_dict.values():
-        union_subs: set[str] = set()
-        for r_id in alb["release_ids"]:
-            union_subs.update(release_submissions.get(r_id, set()))
-
-        alb_velocity = round(sum(submission_metrics[s]["velocity"] for s in union_subs), 1)
-        alb_raw_hype = sum(submission_metrics[s]["raw_hype"] for s in union_subs)
-        alb["velocity"] = alb_velocity
-        alb["raw_hype"] = alb_raw_hype
-        alb["union_subs"] = union_subs
-        album_raw_hypes.append(alb_raw_hype)
+    for rel_ids in album_releases_map.values():
+        alb_subs: set[str] = set()
+        for r_id in rel_ids:
+            alb_subs.update(release_submissions.get(r_id, set()))
+        alb_raw = sum(submission_metrics[s]["raw_hype"] for s in alb_subs)
+        album_raw_hypes.append(alb_raw)
 
     for r in releases_rows:
         rel_id = str(r.id)
@@ -226,17 +225,19 @@ def get_album_detail(
     cohort_max_album = max(album_raw_hypes) if album_raw_hypes else 0.0
     cohort_max_release = max(release_raw_hypes.values()) if release_raw_hypes else 0.0
 
-    # Target album calculation
-    target_union_subs = target_album["union_subs"]
-    target_album_raw_hype = target_album["raw_hype"]
-    target_album_hype_index = calculate_hype_index(target_album_raw_hype, cohort_max_album, REFERENCE_FLOOR)
-    target_album_tier = get_hype_tier(target_album_hype_index)
-    target_album_velocity = target_album["velocity"]
+    # Target album calculations
+    target_union_subs: set[str] = set()
+    for r in target_releases:
+        target_union_subs.update(release_submissions.get(str(r.id), set()))
 
-    # Target album deduplicated submissions list
+    target_raw_hype = sum(submission_metrics[s]["raw_hype"] for s in target_union_subs)
+    target_album_hype_index = calculate_hype_index(target_raw_hype, cohort_max_album, REFERENCE_FLOOR)
+    target_album_tier = get_hype_tier(target_album_hype_index)
+    target_album_velocity = round(sum(submission_metrics[s]["velocity"] for s in target_union_subs), 1)
+
     target_subs_list = [submissions_by_id[s_id] for s_id in target_union_subs]
 
-    # Dates
+    # Dates and engagement (fall back to albums.created_at when no submissions)
     if target_subs_list:
         first_seen_at = min(s["created_utc"] for s in target_subs_list)
         last_seen_at = max(s["created_utc"] for s in target_subs_list)
@@ -244,19 +245,11 @@ def get_album_detail(
         total_comments = sum(s["latest_num_comments"] for s in target_subs_list)
         points_gain = sum(submission_metrics[s["id"]]["delta_e"] for s in target_subs_list)
     else:
-        first_seen_at = target_album["earliest_created_at"]
-        last_seen_at = target_album["earliest_created_at"]
+        first_seen_at = target_album_row.created_at
+        last_seen_at = target_album_row.created_at
         total_score = 0
         total_comments = 0
         points_gain = 0
-
-    # Unique artists linked to target album's releases
-    seen_artists: dict[str, ArtistRef] = {}
-    for r_id in target_album["release_ids"]:
-        for art in artists_by_release.get(r_id, []):
-            if art.artist_id not in seen_artists:
-                seen_artists[art.artist_id] = art
-    target_artists = list(seen_artists.values())
 
     # Stepped LOCF Time Series
     raw_buckets = compute_locf_time_series(
@@ -278,10 +271,10 @@ def get_album_detail(
             "variant": r.variant,
             "retailer_name": r.retailer_name,
         }
-        for r in target_album["releases"]
+        for r in target_releases
     ]
     subs_by_release_map: dict[str, list[dict[str, Any]]] = {}
-    for r in target_album["releases"]:
+    for r in target_releases:
         rel_id = str(r.id)
         subs_by_release_map[rel_id] = [
             submissions_by_id[s_id]
@@ -294,7 +287,7 @@ def get_album_detail(
 
     # Child releases comparison matrix
     child_releases: list[ChildReleaseRow] = []
-    for r in target_album["releases"]:
+    for r in target_releases:
         rel_id = str(r.id)
         rel_subs = subs_by_release_map.get(rel_id, [])
         rel_sub_ids = release_submissions.get(rel_id, set())
@@ -336,10 +329,10 @@ def get_album_detail(
 
     # Assemble Identity and Hero KPIs
     album_identity = AlbumIdentity(
-        album_id=album_id,
-        album_title=target_album["album_title"],
-        combined_artist=target_album["combined_artist"],
-        monogram_key=album_id,
+        album_id=target_album_id_str,
+        album_title=target_album_row.title,
+        combined_artist=target_album_row.combined_artist,
+        monogram_key=target_album_id_str,
         first_seen_at=first_seen_at,
         last_seen_at=last_seen_at,
         artists=target_artists,
@@ -353,7 +346,7 @@ def get_album_detail(
     )
 
     provenance = PressingsProvenance(
-        release_count=target_album["release_count"],
+        release_count=len(target_releases),
         submission_count=len(target_subs_list),
         first_seen_at=first_seen_at,
         last_seen_at=last_seen_at,
@@ -369,16 +362,16 @@ def get_album_detail(
         total_score=total_score,
         total_comments=total_comments,
         submission_count=len(target_subs_list),
-        release_count=target_album["release_count"],
+        release_count=len(target_releases),
         first_seen_at=first_seen_at,
         last_seen_at=last_seen_at,
     )
 
     return AlbumDetailResponse(
-        album_id=album_id,
-        album_title=target_album["album_title"],
-        combined_artist=target_album["combined_artist"],
-        monogram_key=album_id,
+        album_id=target_album_id_str,
+        album_title=target_album_row.title,
+        combined_artist=target_album_row.combined_artist,
+        monogram_key=target_album_id_str,
         first_seen_at=first_seen_at,
         last_seen_at=last_seen_at,
         window=window,
