@@ -1,14 +1,20 @@
 import hashlib
+import uuid
 
 import pytest
 from sqlalchemy import text
 
 from backend.db import get_readonly_engine, get_readonly_session_factory
 from backend.services.catalog import (
+    CatalogAlbum,
+    DerivedAlbum,
     classify_artist_attribution,
     derive_album_id,
     get_all_derived_albums,
     get_artist_catalog_counts,
+    get_artists_catalog_counts,
+    get_catalog_album,
+    get_catalog_albums,
     normalize_attribute,
 )
 
@@ -86,38 +92,88 @@ class TestArtistAttribution:
 
 
 class TestDatabaseCatalogDerivations:
-    def test_earliest_casing_selection(self, readonly_session):
-        derived_albums = get_all_derived_albums(readonly_session)
-        assert len(derived_albums) > 0
+    def test_persisted_album_catalog_retrieval(self, readonly_session):
+        albums = get_catalog_albums(readonly_session)
+        assert len(albums) == 39
 
-        # Find "the smashing pumpkins" / "lull"
-        lull_album = next(
-            (
-                a
-                for a in derived_albums
-                if a.norm_artist == "the smashing pumpkins" and a.norm_album == "lull"
-            ),
-            None,
-        )
-        assert lull_album is not None
-        assert lull_album.combined_artist == "The Smashing Pumpkins"
-        assert lull_album.album_title == "Lull"
-        assert lull_album.release_count >= 2
+        for alb in albums:
+            # Validate UUID string format
+            parsed_uuid = uuid.UUID(alb.album_id)
+            assert str(parsed_uuid) == alb.album_id
+            assert alb.combined_artist
+            assert alb.album_title
+            assert alb.release_count >= 0
+            assert alb.created_at is not None
+            assert alb.norm_artist == normalize_attribute(alb.combined_artist)
+            assert alb.norm_album == normalize_attribute(alb.album_title)
+
+        # Check known multi-pressing album
+        muse_album = next((a for a in albums if a.album_title == "Muse"), None)
+        assert muse_album is not None
+        assert muse_album.combined_artist == "John Legend"
+        assert muse_album.release_count == 3
+
+    def test_get_catalog_album_by_id(self, readonly_session):
+        albums = get_catalog_albums(readonly_session)
+        target = albums[0]
+
+        fetched = get_catalog_album(readonly_session, target.album_id)
+        assert fetched is not None
+        assert fetched.album_id == target.album_id
+        assert fetched.combined_artist == target.combined_artist
+        assert fetched.album_title == target.album_title
+        assert fetched.release_count == target.release_count
+
+        # Test non-existent valid UUID
+        random_uuid = str(uuid.uuid4())
+        assert get_catalog_album(readonly_session, random_uuid) is None
+
+        # Test invalid UUID syntax does not raise DataError
+        assert get_catalog_album(readonly_session, "invalid-uuid-string") is None
+
+    def test_deprecated_derived_albums_shim(self, readonly_session):
+        derived = get_all_derived_albums(readonly_session)
+        assert len(derived) == 39
+        item = derived[0]
+        assert isinstance(item, (CatalogAlbum, DerivedAlbum))
+        assert item.album_id is not None
+        assert item.earliest_created_at is not None
 
     def test_artist_catalog_counts(self, readonly_session):
-        # Query known artists from database
-        popular_music = readonly_session.execute(
-            text("SELECT id FROM artists WHERE name = 'Popular Music'")
+        # Carly Rae Jepsen has 2 solo albums
+        carly_id = readonly_session.execute(
+            text("SELECT id FROM artists WHERE name = 'Carly Rae Jepsen'")
         ).scalar()
-        if popular_music:
-            solo_cnt, comb_cnt = get_artist_catalog_counts(readonly_session, popular_music)
-            assert solo_cnt == 0
-            assert comb_cnt >= 1
+        assert carly_id is not None
+        solo_cnt, comb_cnt = get_artist_catalog_counts(readonly_session, carly_id)
+        assert solo_cnt == 2
+        assert comb_cnt == 0
 
-        smashing_pumpkins = readonly_session.execute(
-            text("SELECT id FROM artists WHERE name = 'The Smashing Pumpkins'")
+        # 2 Chainz has 1 collaborative/combined album (2 Chainz & Statik Selektah)
+        chainz_id = readonly_session.execute(
+            text("SELECT id FROM artists WHERE name = '2 Chainz'")
         ).scalar()
-        if smashing_pumpkins:
-            solo_cnt, comb_cnt = get_artist_catalog_counts(readonly_session, smashing_pumpkins)
-            assert solo_cnt >= 1
-            assert comb_cnt == 0
+        assert chainz_id is not None
+        solo_cnt, comb_cnt = get_artist_catalog_counts(readonly_session, chainz_id)
+        assert solo_cnt == 0
+        assert comb_cnt == 1
+
+        # Non-existent UUID
+        assert get_artist_catalog_counts(readonly_session, uuid.uuid4()) == (0, 0)
+
+        # Malformed UUID string
+        assert get_artist_catalog_counts(readonly_session, "malformed-uuid") == (0, 0)
+
+    def test_batch_artist_catalog_counts(self, readonly_session):
+        carly_id = readonly_session.execute(
+            text("SELECT id FROM artists WHERE name = 'Carly Rae Jepsen'")
+        ).scalar()
+        chainz_id = readonly_session.execute(
+            text("SELECT id FROM artists WHERE name = '2 Chainz'")
+        ).scalar()
+        assert carly_id is not None
+        assert chainz_id is not None
+
+        counts = get_artists_catalog_counts(readonly_session, [carly_id, chainz_id, "invalid-uuid"])
+        assert counts[str(carly_id)] == (2, 0)
+        assert counts[str(chainz_id)] == (0, 1)
