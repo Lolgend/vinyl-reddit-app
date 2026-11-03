@@ -26,7 +26,9 @@ def sample_release_id(readonly_session):
 class TestReleaseDetailService:
     def test_get_release_detail_valid_release(self, readonly_session, sample_release_id):
         now = datetime(2026, 10, 31, 15, 30, 0, tzinfo=timezone.utc)
-        detail = get_release_detail(readonly_session, release_id=sample_release_id, window="24H", now=now)
+        detail = get_release_detail(
+            readonly_session, release_id=sample_release_id, window="24H", now=now
+        )
 
         assert detail is not None
         assert detail.release_id == sample_release_id
@@ -46,7 +48,20 @@ class TestReleaseDetailService:
         assert specs.combined_artist == detail.combined_artist
         assert specs.variant
         assert specs.retailer_name
-        assert specs.artist_id is not None
+        expected_artist = readonly_session.execute(
+            text(
+                """
+                SELECT aa.artist_id
+                FROM releases r
+                JOIN album_artists aa ON r.album_id = aa.album_id
+                WHERE r.id = :r_id
+                ORDER BY aa.created_at ASC, aa.artist_id ASC
+                LIMIT 1
+                """
+            ),
+            {"r_id": sample_release_id},
+        ).scalar()
+        assert specs.artist_id == (str(expected_artist) if expected_artist else None)
 
         # Parent album info
         parent = detail.parent_album
@@ -89,7 +104,9 @@ class TestReleaseDetailService:
 
     def test_get_release_detail_7d_window(self, readonly_session, sample_release_id):
         now = datetime(2026, 10, 31, 15, 30, 0, tzinfo=timezone.utc)
-        detail = get_release_detail(readonly_session, release_id=sample_release_id, window="7D", now=now)
+        detail = get_release_detail(
+            readonly_session, release_id=sample_release_id, window="7D", now=now
+        )
 
         assert detail is not None
         assert detail.window == "7D"
@@ -97,7 +114,9 @@ class TestReleaseDetailService:
 
     def test_get_release_detail_1m_window(self, readonly_session, sample_release_id):
         now = datetime(2026, 10, 31, 15, 30, 0, tzinfo=timezone.utc)
-        detail = get_release_detail(readonly_session, release_id=sample_release_id, window="1M", now=now)
+        detail = get_release_detail(
+            readonly_session, release_id=sample_release_id, window="1M", now=now
+        )
 
         assert detail is not None
         assert detail.window == "1M"
@@ -111,6 +130,39 @@ class TestReleaseDetailService:
     def test_get_release_detail_invalid_uuid_returns_none(self, readonly_session):
         detail = get_release_detail(readonly_session, release_id="not-a-valid-uuid")
         assert detail is None
+
+    def test_get_release_detail_specs_artist_id_deterministic_multi_artist(self, readonly_session):
+        # Query DB to find a release under a multi-artist album
+        row = readonly_session.execute(
+            text(
+                """
+                SELECT r.id, r.album_id
+                FROM releases r
+                JOIN albums a ON r.album_id = a.id
+                WHERE (SELECT COUNT(*) FROM album_artists aa WHERE aa.album_id = a.id) > 1
+                ORDER BY r.created_at ASC, r.id ASC
+                LIMIT 1
+                """
+            )
+        ).fetchone()
+
+        assert row is not None, "Expected at least one multi-artist album in DB"
+        expected_artist_id = readonly_session.execute(
+            text(
+                """
+                SELECT artist_id
+                FROM album_artists
+                WHERE album_id = :alb_id
+                ORDER BY created_at ASC, artist_id ASC
+                LIMIT 1
+                """
+            ),
+            {"alb_id": row.album_id},
+        ).scalar()
+
+        detail = get_release_detail(readonly_session, release_id=str(row.id))
+        assert detail is not None
+        assert detail.specs.artist_id == str(expected_artist_id)
 
 
 class TestReleaseDetailAPI:

@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -31,7 +30,7 @@ from backend.services.hype import (
     WINDOW_CONFIG,
     WindowType,
     calculate_hype_index,
-    compute_submission_metrics,
+    fetch_submissions_and_metrics,
     get_hype_tier,
 )
 
@@ -63,9 +62,6 @@ def get_artist_detail(
 
     if now is None:
         now = datetime.now(timezone.utc)
-
-    spec = WINDOW_CONFIG[window]
-    t0 = now - timedelta(hours=spec.duration_hours)
 
     # 1. Fetch artist directly from artists table
     artist_row = session.execute(
@@ -134,88 +130,11 @@ def get_artist_detail(
         text("SELECT album_id, artist_id FROM album_artists")
     ).fetchall()
 
-    # 5. Fetch linked submissions where is_release = TRUE
-    sub_rows = session.execute(
-        text(
-            """
-            SELECT
-                sr.release_id,
-                s.id AS submission_id,
-                s.reddit_id,
-                s.title,
-                s.url,
-                s.created_utc,
-                s.latest_score,
-                s.latest_num_comments,
-                s.latest_upvote_ratio
-            FROM submission_releases sr
-            JOIN submissions s ON sr.submission_id = s.id
-            WHERE s.is_release = TRUE
-            """
-        )
-    ).fetchall()
-
-    # 6. Fetch snapshots
-    snap_rows = session.execute(
-        text(
-            """
-            SELECT
-                ss.submission_id,
-                ss.score,
-                ss.num_comments,
-                ss.captured_at
-            FROM submission_snapshots ss
-            JOIN submissions s ON ss.submission_id = s.id
-            WHERE s.is_release = TRUE
-            ORDER BY ss.submission_id, ss.captured_at ASC
-            """
-        )
-    ).fetchall()
-
-    snapshots_by_sub: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for sn in snap_rows:
-        snapshots_by_sub[sn.submission_id].append(
-            {
-                "captured_at": sn.captured_at,
-                "score": sn.score,
-                "num_comments": sn.num_comments,
-            }
-        )
-
-    # Compute submission metrics
-    submission_metrics: dict[str, dict[str, Any]] = {}
-    release_submissions: dict[str, set[str]] = defaultdict(set)
-    submissions_by_id: dict[str, dict[str, Any]] = {}
-
-    for row in sub_rows:
-        s_id = row.submission_id
-        r_id = str(row.release_id)
-        release_submissions[r_id].add(s_id)
-
-        submissions_by_id[s_id] = {
-            "id": s_id,
-            "reddit_id": row.reddit_id,
-            "title": row.title,
-            "url": row.url,
-            "created_utc": row.created_utc,
-            "latest_score": row.latest_score,
-            "latest_num_comments": row.latest_num_comments,
-            "latest_upvote_ratio": row.latest_upvote_ratio,
-        }
-
-        if s_id in submission_metrics:
-            continue
-
-        submission_metrics[s_id] = compute_submission_metrics(
-            created_utc=row.created_utc,
-            latest_score=row.latest_score,
-            latest_num_comments=row.latest_num_comments,
-            latest_upvote_ratio=row.latest_upvote_ratio,
-            snapshots=snapshots_by_sub.get(s_id, []),
-            window=window,
-            now=now,
-            t0=t0,
-        )
+    # 5. Fetch linked submissions and compute metrics via shared helper
+    cohort = fetch_submissions_and_metrics(session=session, window=window, now=now)
+    submission_metrics = cohort.submission_metrics
+    release_submissions = cohort.release_submissions
+    submissions_by_id = cohort.submissions_by_id
 
     # Map releases by album
     album_releases_map: dict[str, list[str]] = defaultdict(list)
@@ -261,9 +180,13 @@ def get_artist_detail(
 
     target_subs_list = [submissions_by_id[s_id] for s_id in target_all_subs]
     target_artist_raw = artist_raw_hypes.get(art_id_str, 0.0)
-    target_artist_hype_index = calculate_hype_index(target_artist_raw, cohort_max_artist, REFERENCE_FLOOR)
+    target_artist_hype_index = calculate_hype_index(
+        target_artist_raw, cohort_max_artist, REFERENCE_FLOOR
+    )
     target_artist_tier = get_hype_tier(target_artist_hype_index)
-    target_artist_velocity = round(sum(submission_metrics[s]["velocity"] for s in target_all_subs), 1)
+    target_artist_velocity = round(
+        sum(submission_metrics[s]["velocity"] for s in target_all_subs), 1
+    )
 
     if target_subs_list:
         last_seen_at = max(s["created_utc"] for s in target_subs_list)
@@ -336,7 +259,9 @@ def get_artist_detail(
         )
 
     # Sort tracked albums by hype_index DESC, hype_velocity DESC, release_count DESC
-    tracked_albums.sort(key=lambda a: (a.hype_index, a.hype_velocity, a.release_count), reverse=True)
+    tracked_albums.sort(
+        key=lambda a: (a.hype_index, a.hype_velocity, a.release_count), reverse=True
+    )
 
     total_albums = len(tracked_album_rows)
     total_releases = len(target_releases)

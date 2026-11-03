@@ -7,7 +7,6 @@ classification, and backward-compatible shims for legacy callers.
 
 from __future__ import annotations
 
-import hashlib
 import re
 import uuid
 from dataclasses import dataclass
@@ -17,6 +16,17 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 UNICODE_DASH_PATTERN = re.compile(r"[\u2010-\u2015\u2212]")
+COLLABORATIVE_ARTIST_PATTERN = re.compile(
+    r"(?:\s+(?:/|&|and|feat\.?|ft\.?|with|vs\.?|x)\s+|\s*/\s*|\((?:feat\.?|ft\.?|with|vs\.?)\s+[^)]+\))",
+    re.IGNORECASE,
+)
+
+
+def is_single_billed(combined_artist: str | None) -> bool:
+    """Return True if combined_artist represents a single artist billing."""
+    if not combined_artist or not str(combined_artist).strip():
+        return False
+    return not bool(COLLABORATIVE_ARTIST_PATTERN.search(str(combined_artist).strip()))
 
 
 def normalize_attribute(val: str | None) -> str:
@@ -35,32 +45,30 @@ def normalize_attribute(val: str | None) -> str:
     return " ".join(cleaned.lower().split())
 
 
-def derive_album_id(norm_artist: str, norm_album: str) -> str:
-    """Derive deterministic 16-character lowercase hex album_id from normalized attributes.
-
-    Deprecated: Upstream PR #51 migrated to persisted canonical albums.id UUIDs.
-    Kept as a backward-compatible shim for legacy callers.
-    """
-    payload = f"{norm_artist}|{norm_album}".encode()
-    return hashlib.sha256(payload).hexdigest()[:16]
-
-
 def classify_artist_attribution(
-    artist_name: str,
+    artist_name: str | None,
     combined_artist: str,
     linked_artist_count: int,
 ) -> str:
-    """Classify artist appearance on an album as 'solo' or 'combined'.
+    """Classify artist appearance on an album (or album attribution) as 'solo' or 'combined'.
 
-    - Solo: when normalize(artist_name) == normalize(combined_artist)
-      and exactly 1 artist is linked to the album in album_artists.
-    - Combined: when normalized names differ or multiple artists are linked
-      (e.g. split releases, collaborations).
+    - Solo: when exactly 1 artist is linked and normalize(artist_name) == normalize(combined_artist),
+      or when unlinked (linked_artist_count == 0) and combined_artist is single-billed.
+    - Combined: when multiple artists are linked, or normalized names differ,
+      or when unlinked and combined_artist represents a collaborative/split billing.
     """
-    norm_art = normalize_attribute(artist_name)
     norm_comb = normalize_attribute(combined_artist)
-    if norm_art == norm_comb and linked_artist_count == 1:
-        return "solo"
+    if linked_artist_count == 1:
+        norm_art = normalize_attribute(artist_name)
+        if norm_art == norm_comb:
+            return "solo"
+        return "combined"
+    if linked_artist_count == 0:
+        if is_single_billed(combined_artist):
+            if artist_name is not None and normalize_attribute(artist_name) not in ("", norm_comb):
+                return "combined"
+            return "solo"
+        return "combined"
     return "combined"
 
 
@@ -75,19 +83,12 @@ class CatalogAlbum:
     created_at: datetime
     norm_artist: str = ""
     norm_album: str = ""
-    earliest_created_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not self.norm_artist:
             object.__setattr__(self, "norm_artist", normalize_attribute(self.combined_artist))
         if not self.norm_album:
             object.__setattr__(self, "norm_album", normalize_attribute(self.album_title))
-        if self.earliest_created_at is None:
-            object.__setattr__(self, "earliest_created_at", self.created_at)
-
-
-# Backward-compatibility alias
-DerivedAlbum = CatalogAlbum
 
 
 def get_catalog_albums(session: Session) -> list[CatalogAlbum]:
@@ -168,11 +169,6 @@ def get_catalog_album(session: Session, album_id: uuid.UUID | str) -> CatalogAlb
     )
 
 
-def get_all_derived_albums(session: Session) -> list[CatalogAlbum]:
-    """Deprecated: Backward-compatible alias for get_catalog_albums."""
-    return get_catalog_albums(session)
-
-
 def get_artist_catalog_counts(
     session: Session,
     artist_id: uuid.UUID | str,
@@ -230,67 +226,12 @@ def get_artist_catalog_counts(
     return solo_count, combined_count
 
 
-def get_artists_catalog_counts(
-    session: Session,
-    artist_ids: list[uuid.UUID | str],
-) -> dict[str, tuple[int, int]]:
-    """Batch compute (solo_album_count, combined_album_count) mapped by artist_id string."""
-    valid_uuids: list[uuid.UUID] = []
-    for aid in artist_ids:
-        try:
-            valid_uuids.append(uuid.UUID(str(aid)))
-        except (ValueError, AttributeError):
-            continue
-
-    result: dict[str, tuple[int, int]] = {str(aid): (0, 0) for aid in valid_uuids}
-    if not valid_uuids:
-        return result
-
-    rows = session.execute(
-        text(
-            """
-            SELECT
-                a.id AS artist_id,
-                a.name AS artist_name,
-                alb.id AS album_id,
-                alb.combined_artist,
-                (SELECT COUNT(*) FROM album_artists aa2 WHERE aa2.album_id = alb.id) AS linked_artist_count
-            FROM artists a
-            JOIN album_artists aa ON a.id = aa.artist_id
-            JOIN albums alb ON aa.album_id = alb.id
-            WHERE a.id = ANY(:artist_ids)
-            """
-        ),
-        {"artist_ids": valid_uuids},
-    ).fetchall()
-
-    counts: dict[str, list[str]] = {str(aid): [] for aid in valid_uuids}
-    for row in rows:
-        art_key = str(row.artist_id)
-        attr = classify_artist_attribution(
-            artist_name=row.artist_name,
-            combined_artist=row.combined_artist,
-            linked_artist_count=int(row.linked_artist_count),
-        )
-        counts[art_key].append(attr)
-
-    for art_key, attrs in counts.items():
-        solo = sum(1 for a in attrs if a == "solo")
-        comb = sum(1 for a in attrs if a != "solo")
-        result[art_key] = (solo, comb)
-
-    return result
-
-
 __all__ = [
     "CatalogAlbum",
-    "DerivedAlbum",
     "classify_artist_attribution",
-    "derive_album_id",
-    "get_all_derived_albums",
     "get_artist_catalog_counts",
-    "get_artists_catalog_counts",
     "get_catalog_album",
     "get_catalog_albums",
+    "is_single_billed",
     "normalize_attribute",
 ]

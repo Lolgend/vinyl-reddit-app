@@ -65,12 +65,12 @@ class TestDirectoryServiceUnit:
 
     def test_get_directory_releases_filters(self, readonly_session):
         now = datetime(2026, 10, 31, 15, 30, 0, tzinfo=timezone.utc)
-        
+
         # Test retailer filter (excluding nulls)
         retailers = get_directory_retailers(readonly_session)
         assert len(retailers) > 0
         target_retailer = retailers[0]
-        
+
         filtered = get_directory_releases(
             readonly_session,
             window="24H",
@@ -132,6 +132,37 @@ class TestDirectoryServiceUnit:
         assert 0 <= first_album.hype_index <= 100
         assert first_album.tier in ("high", "moderate", "low")
 
+    def test_get_directory_albums_unlinked_attribution(self, readonly_session, monkeypatch):
+        # When an album has 0 linked artists in album_artists:
+        # single-billed combined_artist -> 'solo', collaborative/split -> 'combined'
+        from backend.services.directory import _compute_directory_cohorts
+
+        orig_execute = readonly_session.execute
+
+        def mock_execute(statement, *args, **kwargs):
+            query_str = str(statement)
+            if "FROM album_artists aa" in query_str:
+                # Simulate 0 linked artists for all albums
+                mock_result = type("MockResult", (), {"fetchall": lambda self: []})()
+                return mock_result
+            return orig_execute(statement, *args, **kwargs)
+
+        monkeypatch.setattr(readonly_session, "execute", mock_execute)
+        _, albums, _ = _compute_directory_cohorts(readonly_session)
+        assert len(albums) > 0
+
+        # Albums with single-billed artists (e.g. 'Carly Rae Jepsen') should be 'solo'
+        single_billed = next((a for a in albums if a.combined_artist == "Carly Rae Jepsen"), None)
+        assert single_billed is not None
+        assert single_billed.attribution == "solo"
+
+        # Albums with collaborative/split artists (e.g. '2 Chainz & Statik Selektah') should be 'combined'
+        collaborative = next(
+            (a for a in albums if a.combined_artist == "2 Chainz & Statik Selektah"), None
+        )
+        assert collaborative is not None
+        assert collaborative.attribution == "combined"
+
     def test_get_directory_artists(self, readonly_session):
         now = datetime(2026, 10, 31, 15, 30, 0, tzinfo=timezone.utc)
         result = get_directory_artists(
@@ -178,7 +209,9 @@ class TestDirectoryAPIEndpoints:
     """Integration tests for FastAPI /api/v1/directory endpoints."""
 
     def test_api_directory_releases_endpoint(self, client):
-        response = client.get("/api/v1/directory/releases?window=24H&page=1&page_size=15&sort=hype_index&order=desc")
+        response = client.get(
+            "/api/v1/directory/releases?window=24H&page=1&page_size=15&sort=hype_index&order=desc"
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["page"] == 1
@@ -278,7 +311,9 @@ class TestDirectoryAPIEndpoints:
             assert item["combined_album_count"] > 0
 
     def test_api_directory_sort_by_and_sort_order_aliases(self, client):
-        res = client.get("/api/v1/directory/releases?sort_by=hype_velocity&sort_order=asc&page=1&page_size=10")
+        res = client.get(
+            "/api/v1/directory/releases?sort_by=hype_velocity&sort_order=asc&page=1&page_size=10"
+        )
         assert res.status_code == 200
         data = res.json()
         assert len(data["items"]) == 10
