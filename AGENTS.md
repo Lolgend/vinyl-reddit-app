@@ -12,6 +12,10 @@ Uses the default five canonical triage labels (`needs-triage`, `needs-info`, `re
 
 Single-context layout (`GLOSSARY.md` and `docs/adr/` at the repo root). See `docs/agents/domain.md`.
 
+### Pull Request (PR)
+
+Use `/pr` skill to form PR body before marking it ready for review.
+
 ## Environment & Tooling
 
 ### Toolchain & Commands

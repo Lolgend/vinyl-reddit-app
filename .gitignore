@@ -1,1 +1,8 @@
 .agents
+.worktrees/
+node_modules/
+.venv/
+__pycache__/
+dist/
+.coverage
+.pytest_cache/
