@@ -1,8 +1,8 @@
-"""Core Catalog Derivations Service.
+"""Core Catalog Derivations and Helpers Service.
 
-Provides deterministic normalization, canonical album_id SHA-256 derivation,
-earliest-ingested release display casing selection, and Solo vs. Combined
-artist attribution classification.
+Provides deterministic attribute normalization, persisted Album entity retrieval,
+catalog footprint counts via album_artists, Solo vs. Combined artist attribution
+classification, and backward-compatible shims for legacy callers.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -37,7 +36,11 @@ def normalize_attribute(val: str | None) -> str:
 
 
 def derive_album_id(norm_artist: str, norm_album: str) -> str:
-    """Derive deterministic 16-character lowercase hex album_id from normalized attributes."""
+    """Derive deterministic 16-character lowercase hex album_id from normalized attributes.
+
+    Deprecated: Upstream PR #51 migrated to persisted canonical albums.id UUIDs.
+    Kept as a backward-compatible shim for legacy callers.
+    """
     payload = f"{norm_artist}|{norm_album}".encode()
     return hashlib.sha256(payload).hexdigest()[:16]
 
@@ -47,10 +50,10 @@ def classify_artist_attribution(
     combined_artist: str,
     linked_artist_count: int,
 ) -> str:
-    """Classify artist appearance on a release as 'solo' or 'combined'.
+    """Classify artist appearance on an album as 'solo' or 'combined'.
 
     - Solo: when normalize(artist_name) == normalize(combined_artist)
-      and exactly 1 artist is linked to the release in release_artists.
+      and exactly 1 artist is linked to the album in album_artists.
     - Combined: when normalized names differ or multiple artists are linked
       (e.g. split releases, collaborations).
     """
@@ -62,55 +65,112 @@ def classify_artist_attribution(
 
 
 @dataclass(frozen=True)
-class DerivedAlbum:
-    """Canonical album representation derived from grouped physical releases."""
+class CatalogAlbum:
+    """Persisted canonical album representation from the albums table."""
 
     album_id: str
-    norm_artist: str
-    norm_album: str
-    album_title: str
     combined_artist: str
+    album_title: str
     release_count: int
-    earliest_created_at: datetime
+    created_at: datetime
+    norm_artist: str = ""
+    norm_album: str = ""
+    earliest_created_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if not self.norm_artist:
+            object.__setattr__(self, "norm_artist", normalize_attribute(self.combined_artist))
+        if not self.norm_album:
+            object.__setattr__(self, "norm_album", normalize_attribute(self.album_title))
+        if self.earliest_created_at is None:
+            object.__setattr__(self, "earliest_created_at", self.created_at)
 
 
-def get_all_derived_albums(session: Session) -> list[DerivedAlbum]:
-    """Retrieve and derive all canonical albums by grouping releases.
+# Backward-compatibility alias
+DerivedAlbum = CatalogAlbum
 
-    Canonical display casing for combined_artist and album_title is deterministically
-    selected from the earliest-ingested release (ORDER BY releases.created_at ASC, releases.id ASC).
+
+def get_catalog_albums(session: Session) -> list[CatalogAlbum]:
+    """Retrieve all persisted albums from the albums table, counting child releases.
+
+    Queries the albums table directly, exposing albums.id UUID string as album_id
+    and albums.title as album_title. Child releases are counted via releases.album_id = albums.id.
     """
     rows = session.execute(
         text(
             """
-            SELECT id, combined_artist, album_title, created_at
-            FROM releases
-            ORDER BY created_at ASC, id ASC
+            SELECT
+                a.id,
+                a.combined_artist,
+                a.title AS album_title,
+                a.created_at,
+                COUNT(r.id) AS release_count
+            FROM albums a
+            LEFT JOIN releases r ON r.album_id = a.id
+            GROUP BY a.id, a.combined_artist, a.title, a.created_at
+            ORDER BY a.created_at ASC, a.id ASC
             """
         )
     ).fetchall()
 
-    albums_map: dict[str, dict[str, Any]] = {}
+    return [
+        CatalogAlbum(
+            album_id=str(row.id),
+            combined_artist=row.combined_artist,
+            album_title=row.album_title,
+            release_count=int(row.release_count),
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
 
-    for row in rows:
-        norm_art = normalize_attribute(row.combined_artist)
-        norm_alb = normalize_attribute(row.album_title)
-        album_id = derive_album_id(norm_art, norm_alb)
 
-        if album_id not in albums_map:
-            albums_map[album_id] = {
-                "album_id": album_id,
-                "norm_artist": norm_art,
-                "norm_album": norm_alb,
-                "album_title": row.album_title,
-                "combined_artist": row.combined_artist,
-                "release_count": 1,
-                "earliest_created_at": row.created_at,
-            }
+def get_catalog_album(session: Session, album_id: uuid.UUID | str) -> CatalogAlbum | None:
+    """Retrieve a single persisted album by UUID, counting child releases.
+
+    Returns None immediately if album_id is an invalid UUID string or not found.
+    """
+    try:
+        if isinstance(album_id, str):
+            album_uuid = uuid.UUID(album_id)
         else:
-            albums_map[album_id]["release_count"] += 1
+            album_uuid = album_id
+    except (ValueError, AttributeError):
+        return None
 
-    return [DerivedAlbum(**data) for data in albums_map.values()]
+    row = session.execute(
+        text(
+            """
+            SELECT
+                a.id,
+                a.combined_artist,
+                a.title AS album_title,
+                a.created_at,
+                COUNT(r.id) AS release_count
+            FROM albums a
+            LEFT JOIN releases r ON r.album_id = a.id
+            WHERE a.id = :album_id
+            GROUP BY a.id, a.combined_artist, a.title, a.created_at
+            """
+        ),
+        {"album_id": album_uuid},
+    ).fetchone()
+
+    if row is None:
+        return None
+
+    return CatalogAlbum(
+        album_id=str(row.id),
+        combined_artist=row.combined_artist,
+        album_title=row.album_title,
+        release_count=int(row.release_count),
+        created_at=row.created_at,
+    )
+
+
+def get_all_derived_albums(session: Session) -> list[CatalogAlbum]:
+    """Deprecated: Backward-compatible alias for get_catalog_albums."""
+    return get_catalog_albums(session)
 
 
 def get_artist_catalog_counts(
@@ -119,55 +179,118 @@ def get_artist_catalog_counts(
 ) -> tuple[int, int]:
     """Compute (solo_album_count, combined_album_count) for a specific artist.
 
-    Returns:
-        tuple[int, int]: (solo_album_count, combined_album_count)
+    Computed directly via album_artists and albums:
+    - An album is classified as 'solo' when normalize_attribute(artist.name) == normalize_attribute(album.combined_artist)
+      and the album has exactly 1 linked artist in album_artists.
+    - Otherwise, classified as 'combined'.
+
+    Returns (0, 0) if artist_id is not a valid UUID or has no albums.
     """
-    if isinstance(artist_id, str):
-        artist_id = uuid.UUID(artist_id)
+    try:
+        if isinstance(artist_id, str):
+            artist_uuid = uuid.UUID(artist_id)
+        else:
+            artist_uuid = artist_id
+    except (ValueError, AttributeError):
+        return 0, 0
 
     rows = session.execute(
         text(
             """
-            SELECT r.id, r.combined_artist, r.album_title,
-                   (SELECT COUNT(*) FROM release_artists ra2 WHERE ra2.release_id = r.id) AS artist_count,
-                   a.name AS artist_name
-            FROM releases r
-            JOIN release_artists ra ON r.id = ra.release_id
-            JOIN artists a ON ra.artist_id = a.id
-            WHERE ra.artist_id = :artist_id
+            SELECT
+                a.name AS artist_name,
+                alb.id AS album_id,
+                alb.combined_artist,
+                (SELECT COUNT(*) FROM album_artists aa2 WHERE aa2.album_id = alb.id) AS linked_artist_count
+            FROM artists a
+            JOIN album_artists aa ON a.id = aa.artist_id
+            JOIN albums alb ON aa.album_id = alb.id
+            WHERE a.id = :artist_id
             """
         ),
-        {"artist_id": artist_id},
+        {"artist_id": artist_uuid},
     ).fetchall()
 
-    albums: dict[str, list[bool]] = {}
+    if not rows:
+        return 0, 0
 
+    solo_count = 0
+    combined_count = 0
     for row in rows:
-        norm_art = normalize_attribute(row.combined_artist)
-        norm_alb = normalize_attribute(row.album_title)
-        album_id = derive_album_id(norm_art, norm_alb)
-
-        is_solo = classify_artist_attribution(
+        attribution = classify_artist_attribution(
             artist_name=row.artist_name,
             combined_artist=row.combined_artist,
-            linked_artist_count=row.artist_count,
-        ) == "solo"
-
-        if album_id not in albums:
-            albums[album_id] = []
-        albums[album_id].append(is_solo)
-
-    solo_count = sum(1 for is_solos in albums.values() if any(is_solos))
-    combined_count = sum(1 for is_solos in albums.values() if not any(is_solos))
+            linked_artist_count=int(row.linked_artist_count),
+        )
+        if attribution == "solo":
+            solo_count += 1
+        else:
+            combined_count += 1
 
     return solo_count, combined_count
 
 
+def get_artists_catalog_counts(
+    session: Session,
+    artist_ids: list[uuid.UUID | str],
+) -> dict[str, tuple[int, int]]:
+    """Batch compute (solo_album_count, combined_album_count) mapped by artist_id string."""
+    valid_uuids: list[uuid.UUID] = []
+    for aid in artist_ids:
+        try:
+            valid_uuids.append(uuid.UUID(str(aid)))
+        except (ValueError, AttributeError):
+            continue
+
+    result: dict[str, tuple[int, int]] = {str(aid): (0, 0) for aid in valid_uuids}
+    if not valid_uuids:
+        return result
+
+    rows = session.execute(
+        text(
+            """
+            SELECT
+                a.id AS artist_id,
+                a.name AS artist_name,
+                alb.id AS album_id,
+                alb.combined_artist,
+                (SELECT COUNT(*) FROM album_artists aa2 WHERE aa2.album_id = alb.id) AS linked_artist_count
+            FROM artists a
+            JOIN album_artists aa ON a.id = aa.artist_id
+            JOIN albums alb ON aa.album_id = alb.id
+            WHERE a.id = ANY(:artist_ids)
+            """
+        ),
+        {"artist_ids": valid_uuids},
+    ).fetchall()
+
+    counts: dict[str, list[str]] = {str(aid): [] for aid in valid_uuids}
+    for row in rows:
+        art_key = str(row.artist_id)
+        attr = classify_artist_attribution(
+            artist_name=row.artist_name,
+            combined_artist=row.combined_artist,
+            linked_artist_count=int(row.linked_artist_count),
+        )
+        counts[art_key].append(attr)
+
+    for art_key, attrs in counts.items():
+        solo = sum(1 for a in attrs if a == "solo")
+        comb = sum(1 for a in attrs if a != "solo")
+        result[art_key] = (solo, comb)
+
+    return result
+
+
 __all__ = [
+    "CatalogAlbum",
     "DerivedAlbum",
     "classify_artist_attribution",
     "derive_album_id",
     "get_all_derived_albums",
     "get_artist_catalog_counts",
+    "get_artists_catalog_counts",
+    "get_catalog_album",
+    "get_catalog_albums",
     "normalize_attribute",
 ]
