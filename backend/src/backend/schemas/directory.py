@@ -24,7 +24,7 @@ class ReleaseDirectoryItem(BaseModel):
     """Release row item for grid and table views in Directory Explorer."""
 
     release_id: str = Field(..., description="UUID of physical release")
-    album_id: str = Field(..., description="Deterministic 16-character SHA-256 album key")
+    album_id: str = Field(..., description="UUID of parent canonical album")
     album_title: str = Field(..., description="Album title")
     combined_artist: str = Field(..., description="Artist or collaborative artist billing")
     variant: str | None = Field(default=None, description="Pressing variant description")
@@ -40,12 +40,12 @@ class ReleaseDirectoryItem(BaseModel):
 
 
 class AlbumDirectoryItem(BaseModel):
-    """Derived canonical album row item for Directory Explorer."""
+    """Canonical album row item for Directory Explorer."""
 
-    album_id: str = Field(..., description="Deterministic 16-character SHA-256 album key")
-    album_title: str = Field(..., description="Canonical album title (earliest ingested casing)")
+    album_id: str = Field(..., description="Canonical Album UUID")
+    album_title: str = Field(..., description="Canonical album title")
     combined_artist: str = Field(..., description="Canonical artist billing")
-    release_count: int = Field(..., ge=1, description="Count of physical releases/pressings")
+    release_count: int = Field(..., ge=0, description="Count of physical releases/pressings")
     preview_variants: list[str] = Field(
         default_factory=list,
         description="Inline preview list of child variant descriptors",
