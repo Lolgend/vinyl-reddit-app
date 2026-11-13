@@ -21,14 +21,14 @@ def sample_artist_id(readonly_session):
             """
             SELECT a.id
             FROM artists a
-            JOIN release_artists ra ON a.id = ra.artist_id
+            JOIN album_artists aa ON a.id = aa.artist_id
             GROUP BY a.id
-            HAVING COUNT(ra.release_id) > 0
+            HAVING COUNT(aa.album_id) > 0
             LIMIT 1
             """
         )
     ).fetchone()
-    assert row is not None, "No artist with releases found in database"
+    assert row is not None, "No artist with albums found in database"
     return str(row.id)
 
 

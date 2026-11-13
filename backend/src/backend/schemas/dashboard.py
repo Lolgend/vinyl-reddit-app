@@ -9,24 +9,24 @@ from pydantic import BaseModel, Field
 
 
 class AlbumLeaderboardItem(BaseModel):
-    """Derived album leaderboard item ranked by Hype Index."""
+    """Persisted album leaderboard item ranked by Hype Index."""
 
-    album_id: str = Field(..., description="Deterministic 16-character SHA-256 album identifier")
-    album_title: str = Field(..., description="Canonical album title (earliest ingested casing)")
+    album_id: str = Field(..., description="Canonical Album UUID identifier")
+    album_title: str = Field(..., description="Canonical album title")
     combined_artist: str = Field(..., description="Canonical artist billing")
     hype_index: int = Field(..., ge=0, le=100, description="Window-scaled log-compressed Hype Index (0-100)")
     hype_velocity: float = Field(..., ge=0.0, description="Hype Velocity (+X.X pts/hr)")
     tier: Literal["high", "moderate", "low"] = Field(..., description="Qualitative demand tier")
-    release_count: int = Field(..., ge=1, description="Number of child pressings under this album")
+    release_count: int = Field(..., ge=0, description="Number of child pressings under this album")
     submission_count: int = Field(default=0, ge=0, description="Deduplicated union count of linked Reddit submissions")
-    monogram_key: str = Field(..., description="Key for deterministic monogram styling")
+    monogram_key: str = Field(..., description="Canonical Album UUID identifier for deterministic monogram styling")
 
 
 class ReleaseLeaderboardItem(BaseModel):
     """Physical release leaderboard item ranked by Hype Index."""
 
     release_id: str = Field(..., description="UUID string of physical release")
-    album_id: str = Field(..., description="Parent derived album identifier")
+    album_id: str = Field(..., description="Parent canonical album UUID identifier")
     album_title: str = Field(..., description="Album title")
     combined_artist: str = Field(..., description="Artist billing")
     variant: str | None = Field(default=None, description="Pressing variant description")
@@ -41,7 +41,7 @@ class NewlyAddedReleaseItem(BaseModel):
     """Release first discovered within the last 24 hours."""
 
     release_id: str = Field(..., description="UUID string of physical release")
-    album_id: str = Field(..., description="Parent derived album identifier")
+    album_id: str = Field(..., description="Parent canonical album UUID identifier")
     album_title: str = Field(..., description="Album title")
     combined_artist: str = Field(..., description="Artist billing")
     variant: str | None = Field(default=None, description="Pressing variant description")
@@ -58,7 +58,7 @@ class LiveFeedItem(BaseModel):
     """7-column ledger item for live release feed."""
 
     release_id: str = Field(..., description="UUID string of physical release")
-    album_id: str = Field(..., description="Parent derived album identifier")
+    album_id: str = Field(..., description="Parent canonical album UUID identifier")
     album_title: str = Field(..., description="Album title")
     combined_artist: str = Field(..., description="Artist billing")
     variant: str | None = Field(default=None, description="Pressing variant description")

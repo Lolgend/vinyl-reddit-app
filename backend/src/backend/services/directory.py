@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from sqlalchemy import text
@@ -25,8 +25,6 @@ from backend.schemas.directory import (
 )
 from backend.services.catalog import (
     classify_artist_attribution,
-    derive_album_id,
-    normalize_attribute,
 )
 from backend.services.hype import (
     DEFAULT_WINDOW,
@@ -34,7 +32,7 @@ from backend.services.hype import (
     WINDOW_CONFIG,
     WindowType,
     calculate_hype_index,
-    compute_submission_metrics,
+    fetch_submissions_and_metrics,
     get_hype_tier,
 )
 
@@ -55,111 +53,81 @@ def _compute_directory_cohorts(
     if now is None:
         now = datetime.now(timezone.utc)
 
-    spec = WINDOW_CONFIG[window]
-    t0 = now - timedelta(hours=spec.duration_hours)
-
-    # 1. Fetch releases in deterministic earliest-ingested order
+    # 1. Fetch releases joined with parent albums in deterministic earliest-ingested order
     rel_rows = session.execute(
         text(
             """
-            SELECT id, combined_artist, album_title, variant, retailer_name, created_at
-            FROM releases
+            SELECT
+                r.id,
+                r.album_id,
+                r.variant,
+                r.retailer_name,
+                r.created_at,
+                a.title AS album_title,
+                a.combined_artist
+            FROM releases r
+            JOIN albums a ON r.album_id = a.id
+            ORDER BY r.created_at ASC, r.id ASC
+            """
+        )
+    ).fetchall()
+
+    # 2. Fetch linked submissions and compute metrics via shared helper
+    cohort = fetch_submissions_and_metrics(session=session, window=window, now=now)
+    submission_metrics = cohort.submission_metrics
+    release_submissions = cohort.release_submissions
+
+    # 5. Fetch all persisted albums
+    alb_rows = session.execute(
+        text(
+            """
+            SELECT id, combined_artist, title AS album_title, created_at
+            FROM albums
             ORDER BY created_at ASC, id ASC
             """
         )
     ).fetchall()
 
-    # 2. Fetch linked release submissions
-    sub_rows = session.execute(
+    # 6. Fetch album-artist linkages
+    aa_rows = session.execute(
         text(
             """
             SELECT
-                sr.release_id,
-                s.id AS submission_id,
-                s.created_utc,
-                s.latest_score,
-                s.latest_num_comments,
-                s.latest_upvote_ratio
-            FROM submission_releases sr
-            JOIN submissions s ON sr.submission_id = s.id
-            WHERE s.is_release = TRUE
+                aa.album_id,
+                aa.artist_id,
+                art.name AS artist_name
+            FROM album_artists aa
+            JOIN artists art ON aa.artist_id = art.id
+            ORDER BY aa.album_id, aa.created_at ASC, art.name ASC
             """
         )
     ).fetchall()
 
-    # 3. Fetch snapshots
-    snap_rows = session.execute(
+    album_artists_by_alb: dict[str, list[str]] = defaultdict(list)
+    artist_albums_by_art: dict[str, list[str]] = defaultdict(list)
+    for aa in aa_rows:
+        album_artists_by_alb[str(aa.album_id)].append(aa.artist_name)
+        artist_albums_by_art[str(aa.artist_id)].append(str(aa.album_id))
+
+    # 7. Fetch all artists
+    art_rows = session.execute(
         text(
             """
-            SELECT
-                ss.submission_id,
-                ss.score,
-                ss.num_comments,
-                ss.captured_at
-            FROM submission_snapshots ss
-            JOIN submissions s ON ss.submission_id = s.id
-            WHERE s.is_release = TRUE
-            ORDER BY ss.submission_id, ss.captured_at ASC
+            SELECT id, name, created_at
+            FROM artists
+            ORDER BY name ASC, id ASC
             """
         )
     ).fetchall()
 
-    snapshots_by_sub: dict[str, list[Any]] = defaultdict(list)
-    for sn in snap_rows:
-        snapshots_by_sub[sn.submission_id].append(sn)
-
-    # 4. Compute submission metrics
-    submission_metrics: dict[str, dict[str, Any]] = {}
-    release_submissions: dict[str, set[str]] = defaultdict(set)
-
-    for row in sub_rows:
-        s_id = row.submission_id
-        r_id = str(row.release_id)
-        release_submissions[r_id].add(s_id)
-
-        if s_id in submission_metrics:
-            continue
-
-        submission_metrics[s_id] = compute_submission_metrics(
-            created_utc=row.created_utc,
-            latest_score=row.latest_score,
-            latest_num_comments=row.latest_num_comments,
-            latest_upvote_ratio=row.latest_upvote_ratio,
-            snapshots=snapshots_by_sub.get(s_id, []),
-            window=window,
-            now=now,
-            t0=t0,
-        )
-
-    # 5. Fetch artist linkages and counts
-    art_link_rows = session.execute(
-        text(
-            """
-            SELECT
-                a.id AS artist_id,
-                a.name AS artist_name,
-                a.created_at AS artist_created_at,
-                ra.release_id,
-                r.combined_artist,
-                r.album_title,
-                (SELECT COUNT(*) FROM release_artists ra2 WHERE ra2.release_id = r.id) AS release_artist_count
-            FROM artists a
-            LEFT JOIN release_artists ra ON a.id = ra.artist_id
-            LEFT JOIN releases r ON ra.release_id = r.id
-            ORDER BY a.name ASC, a.id ASC
-            """
-        )
-    ).fetchall()
-
-    # Build Releases & Albums data
+    # Build Releases data
     raw_releases: list[dict[str, Any]] = []
-    albums_dict: dict[str, dict[str, Any]] = {}
+    releases_by_alb: dict[str, list[Any]] = defaultdict(list)
 
     for rel_row in rel_rows:
         rel_id = str(rel_row.id)
-        norm_art = normalize_attribute(rel_row.combined_artist)
-        norm_alb = normalize_attribute(rel_row.album_title)
-        alb_id = derive_album_id(norm_art, norm_alb)
+        alb_id = str(rel_row.album_id)
+        releases_by_alb[alb_id].append(rel_row)
 
         linked_subs = release_submissions.get(rel_id, set())
         rel_velocity = round(sum(submission_metrics[s]["velocity"] for s in linked_subs), 1)
@@ -184,101 +152,91 @@ def _compute_directory_cohorts(
         }
         raw_releases.append(rel_data)
 
-        if alb_id not in albums_dict:
-            albums_dict[alb_id] = {
-                "album_id": alb_id,
-                "album_title": rel_row.album_title,
-                "combined_artist": rel_row.combined_artist,
-                "release_count": 1,
-                "release_ids": [rel_id],
-                "preview_variants": [rel_row.variant] if rel_row.variant else [],
-                "retailers": [rel_row.retailer_name] if rel_row.retailer_name else [],
-                "created_at": rel_row.created_at,
-                "monogram_key": alb_id,
-            }
-        else:
-            alb = albums_dict[alb_id]
-            alb["release_count"] += 1
-            alb["release_ids"].append(rel_id)
-            if rel_row.variant and rel_row.variant not in alb["preview_variants"]:
-                alb["preview_variants"].append(rel_row.variant)
-            if rel_row.retailer_name and rel_row.retailer_name not in alb["retailers"]:
-                alb["retailers"].append(rel_row.retailer_name)
-
-    # Compute derived album rollups
+    # Build Albums data
     raw_albums: list[dict[str, Any]] = []
-    for alb in albums_dict.values():
+    for alb_row in alb_rows:
+        alb_id = str(alb_row.id)
+        child_rels = releases_by_alb.get(alb_id, [])
+
         union_subs: set[str] = set()
-        for r_id in alb["release_ids"]:
+        variants: list[str] = []
+        retailers: set[str] = set()
+
+        for r in child_rels:
+            r_id = str(r.id)
             union_subs.update(release_submissions.get(r_id, set()))
+            if r.variant and r.variant.strip() and r.variant not in variants:
+                variants.append(r.variant)
+            if r.retailer_name and r.retailer_name.strip():
+                retailers.add(r.retailer_name.strip())
 
         alb_velocity = round(sum(submission_metrics[s]["velocity"] for s in union_subs), 1)
         alb_raw_hype = sum(submission_metrics[s]["raw_hype"] for s in union_subs)
         alb_score = sum(submission_metrics[s]["score"] for s in union_subs)
         alb_num_comments = sum(submission_metrics[s]["num_comments"] for s in union_subs)
 
+        # Attribution: classify via album_artists
+        linked_artists = album_artists_by_alb.get(alb_id, [])
+        primary_artist = linked_artists[0] if linked_artists else None
+        attr = classify_artist_attribution(
+            artist_name=primary_artist,
+            combined_artist=alb_row.combined_artist,
+            linked_artist_count=len(linked_artists),
+        )
+        alb_attribution: Literal["solo", "combined"] = "solo" if attr == "solo" else "combined"
+
+        alb_created_at = child_rels[0].created_at if child_rels else alb_row.created_at
+
         alb_data = {
-            "album_id": alb["album_id"],
-            "album_title": alb["album_title"],
-            "combined_artist": alb["combined_artist"],
-            "release_count": alb["release_count"],
-            "preview_variants": alb["preview_variants"][:3],
-            "retailers": sorted(alb["retailers"]),
+            "album_id": alb_id,
+            "album_title": alb_row.album_title,
+            "combined_artist": alb_row.combined_artist,
+            "release_count": len(child_rels),
+            "preview_variants": variants[:3],
+            "retailers": sorted(retailers),
             "submission_count": len(union_subs),
             "score": alb_score,
             "num_comments": alb_num_comments,
             "hype_velocity": alb_velocity,
             "raw_hype": alb_raw_hype,
-            "monogram_key": alb["monogram_key"],
-            "created_at": alb["created_at"],
+            "attribution": alb_attribution,
+            "monogram_key": alb_id,
+            "created_at": alb_created_at,
         }
         raw_albums.append(alb_data)
 
     # Build Artists data
-    artists_map: dict[str, dict[str, Any]] = {}
-    artist_albums: dict[str, dict[str, list[bool]]] = defaultdict(lambda: defaultdict(list))
-    artist_releases: dict[str, set[str]] = defaultdict(set)
-    album_is_solo_flags: dict[str, list[bool]] = defaultdict(list)
-
-    for row in art_link_rows:
-        art_id = str(row.artist_id)
-        if art_id not in artists_map:
-            artists_map[art_id] = {
-                "artist_id": art_id,
-                "name": row.artist_name,
-                "created_at": row.artist_created_at,
-                "monogram_key": art_id,
-            }
-
-        if row.release_id is not None:
-            r_id = str(row.release_id)
-            artist_releases[art_id].add(r_id)
-
-            norm_art = normalize_attribute(row.combined_artist)
-            norm_alb = normalize_attribute(row.album_title)
-            alb_id = derive_album_id(norm_art, norm_alb)
-
-            is_solo = (
-                classify_artist_attribution(
-                    artist_name=row.artist_name,
-                    combined_artist=row.combined_artist,
-                    linked_artist_count=row.release_artist_count or 1,
-                )
-                == "solo"
-            )
-            artist_albums[art_id][alb_id].append(is_solo)
-            album_is_solo_flags[alb_id].append(is_solo)
-
+    alb_by_id = {str(a.id): a for a in alb_rows}
     raw_artists: list[dict[str, Any]] = []
-    for art_id, art_base in artists_map.items():
-        rel_set = artist_releases.get(art_id, set())
-        alb_dict = artist_albums.get(art_id, {})
 
-        solo_count = sum(1 for is_solos in alb_dict.values() if any(is_solos))
-        combined_count = sum(1 for is_solos in alb_dict.values() if not any(is_solos))
+    for art_row in art_rows:
+        art_id = str(art_row.id)
+        linked_alb_ids = artist_albums_by_art.get(art_id, [])
+
+        solo_count = 0
+        combined_count = 0
+        art_releases: set[str] = set()
+
+        for alb_id in linked_alb_ids:
+            alb = alb_by_id.get(alb_id)
+            if alb is None:
+                continue
+            linked_cnt = len(album_artists_by_alb.get(alb_id, []))
+            attr = classify_artist_attribution(
+                artist_name=art_row.name,
+                combined_artist=alb.combined_artist,
+                linked_artist_count=linked_cnt,
+            )
+            if attr == "solo":
+                solo_count += 1
+            else:
+                combined_count += 1
+
+            for r in releases_by_alb.get(alb_id, []):
+                art_releases.add(str(r.id))
 
         art_subs: set[str] = set()
-        for r_id in rel_set:
+        for r_id in art_releases:
             art_subs.update(release_submissions.get(r_id, set()))
 
         art_velocity = round(sum(submission_metrics[s]["velocity"] for s in art_subs), 1)
@@ -288,18 +246,18 @@ def _compute_directory_cohorts(
 
         art_data = {
             "artist_id": art_id,
-            "name": art_base["name"],
+            "name": art_row.name,
             "solo_album_count": solo_count,
             "combined_album_count": combined_count,
             "album_count": solo_count + combined_count,
-            "release_count": len(rel_set),
+            "release_count": len(art_releases),
             "submission_count": len(art_subs),
             "score": art_score,
             "num_comments": art_num_comments,
             "hype_velocity": art_velocity,
             "raw_hype": art_raw_hype,
-            "monogram_key": art_base["monogram_key"],
-            "created_at": art_base["created_at"],
+            "monogram_key": art_id,
+            "created_at": art_row.created_at,
         }
         raw_artists.append(art_data)
 
@@ -332,8 +290,6 @@ def _compute_directory_cohorts(
     final_albums: list[AlbumDirectoryItem] = []
     for alb_d in raw_albums:
         h_idx = calculate_hype_index(alb_d["raw_hype"], max_alb_raw, REFERENCE_FLOOR)
-        is_alb_solo = any(album_is_solo_flags.get(alb_d["album_id"], [True]))
-        alb_attribution: Literal["solo", "combined"] = "solo" if is_alb_solo else "combined"
         final_albums.append(
             AlbumDirectoryItem(
                 album_id=alb_d["album_id"],
@@ -348,7 +304,7 @@ def _compute_directory_cohorts(
                 hype_velocity=alb_d["hype_velocity"],
                 hype_index=h_idx,
                 tier=get_hype_tier(h_idx),
-                attribution=alb_attribution,
+                attribution=alb_d["attribution"],
                 monogram_key=alb_d["monogram_key"],
                 created_at=alb_d["created_at"],
             )
@@ -514,9 +470,7 @@ def get_directory_albums(
     # Retailer filter
     if retailer and retailer.strip() and retailer.strip().lower() not in ("all", "none"):
         ret_norm = retailer.strip().lower()
-        filtered = [
-            a for a in filtered if any(r.strip().lower() == ret_norm for r in a.retailers)
-        ]
+        filtered = [a for a in filtered if any(r.strip().lower() == ret_norm for r in a.retailers)]
 
     # Attribution filter (solo vs combined)
     if attribution and attribution.lower() in ("solo", "combined"):
@@ -686,22 +640,12 @@ def get_directory_counts(session: Session) -> DirectoryCountsResponse:
     """Return total catalog entity counts for live tab badges."""
     rel_count = session.execute(text("SELECT COUNT(*) FROM releases")).scalar() or 0
     art_count = session.execute(text("SELECT COUNT(*) FROM artists")).scalar() or 0
-    alb_count = (
-        session.execute(
-            text(
-                r"""
-                SELECT COUNT(DISTINCT LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(combined_artist, '[\u2010-\u2015\u2212]', '-', 'g'), '\s+', ' ', 'g'))) || '|' || LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(album_title, '[\u2010-\u2015\u2212]', '-', 'g'), '\s+', ' ', 'g'))))
-                FROM releases
-                """
-            )
-        ).scalar()
-        or 0
-    )
+    alb_count = session.execute(text("SELECT COUNT(*) FROM albums")).scalar() or 0
 
     return DirectoryCountsResponse(
-        releases=rel_count,
-        albums=alb_count,
-        artists=art_count,
+        releases=int(rel_count),
+        albums=int(alb_count),
+        artists=int(art_count),
     )
 
 

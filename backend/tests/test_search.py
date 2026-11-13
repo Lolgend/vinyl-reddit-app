@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -20,31 +22,38 @@ class TestSearchService:
         assert data["artists"] == []
 
     def test_search_by_artist_name(self, client):
-        res = client.get("/api/v1/search?q=smashing")
+        res = client.get("/api/v1/search?q=cats")
         assert res.status_code == 200
         data = res.json()
-        assert data["query"] == "smashing"
+        assert data["query"] == "cats"
 
         # Check albums group
         assert len(data["albums"]) >= 1
         album = data["albums"][0]
         assert "id" in album
-        assert "The Smashing Pumpkins" in album["title"] or "The Smashing Pumpkins" in album["subtitle"]
-        assert album["monogram_key"] is not None
+        # Validate id is a valid UUID string
+        assert str(uuid.UUID(album["id"])) == album["id"]
+        assert album["monogram_key"] == album["id"]
+        assert "Cats" in album["title"] or "Cats" in album["subtitle"]
+        assert album["extra"] is not None
+        assert "release_count" in album["extra"]
 
         # Check releases group
         assert len(data["releases"]) >= 1
         release = data["releases"][0]
         assert "id" in release
-        assert "Lull" in release["title"] or "Smashing Pumpkins" in release["subtitle"]
-        assert release["monogram_key"] is not None
+        assert str(uuid.UUID(release["id"])) == release["id"]
+        assert release["monogram_key"] == release["id"]
+        assert "Cats" in release["title"] or "Cats" in release["subtitle"]
 
         # Check artists group
         assert len(data["artists"]) >= 1
         artist = data["artists"][0]
         assert "id" in artist
-        assert artist["title"] == "The Smashing Pumpkins"
-        assert artist["monogram_key"] is not None
+        assert str(uuid.UUID(artist["id"])) == artist["id"]
+        assert "Cats" in artist["title"]
+        assert artist["monogram_key"] == artist["id"]
+        assert "solo" in artist["subtitle"] or "combined" in artist["subtitle"]
 
     def test_search_by_variant(self, client):
         # Query a known variant keyword like "splatter"
@@ -52,17 +61,16 @@ class TestSearchService:
         assert res.status_code == 200
         data = res.json()
         assert len(data["releases"]) >= 1
-        # At least one release should have splatter in subtitle or title
         matching = any("splatter" in (r["subtitle"] + r["title"]).lower() for r in data["releases"])
         assert matching
 
     def test_search_by_retailer(self, client):
-        # Query a known retailer keyword like "Revolver"
-        res = client.get("/api/v1/search?q=revolver")
+        # Query a known retailer keyword like "Magnolia"
+        res = client.get("/api/v1/search?q=magnolia")
         assert res.status_code == 200
         data = res.json()
         assert len(data["releases"]) >= 1
-        matching = any("revolver" in (r["subtitle"] + r["title"]).lower() for r in data["releases"])
+        matching = any("magnolia" in (r["subtitle"] + r["title"]).lower() for r in data["releases"])
         assert matching
 
     def test_search_limit_parameter(self, client):
@@ -77,9 +85,19 @@ class TestSearchService:
         assert len(data2["artists"]) <= 2
 
     def test_search_case_insensitivity(self, client):
-        res_lower = client.get("/api/v1/search?q=smashing")
-        res_upper = client.get("/api/v1/search?q=SMASHING")
+        res_lower = client.get("/api/v1/search?q=cats")
+        res_upper = client.get("/api/v1/search?q=CATS")
         assert res_lower.status_code == 200
         assert res_upper.status_code == 200
         assert len(res_lower.json()["albums"]) == len(res_upper.json()["albums"])
+        assert len(res_lower.json()["albums"]) > 0
         assert len(res_lower.json()["artists"]) == len(res_upper.json()["artists"])
+        assert len(res_lower.json()["artists"]) > 0
+
+    def test_search_nonexistent_returns_empty(self, client):
+        res = client.get("/api/v1/search?q=nonexistentartist12345")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["albums"] == []
+        assert data["releases"] == []
+        assert data["artists"] == []

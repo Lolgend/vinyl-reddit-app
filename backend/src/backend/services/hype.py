@@ -15,15 +15,6 @@ from typing import Any, Literal
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from backend.schemas.dashboard import (
-    AlbumLeaderboardItem,
-    DashboardResponse,
-    LiveFeedItem,
-    NewlyAddedReleaseItem,
-    ReleaseLeaderboardItem,
-)
-from backend.services.catalog import derive_album_id
-
 WindowType = Literal["24H", "7D", "1M"]
 
 
@@ -131,10 +122,7 @@ def normalize_cohort_hype(
     if not raw_hypes:
         return []
     cohort_max = max(raw_hypes)
-    return [
-        calculate_hype_index(h, cohort_max, reference_floor)
-        for h in raw_hypes
-    ]
+    return [calculate_hype_index(h, cohort_max, reference_floor) for h in raw_hypes]
 
 
 def get_hype_tier(hype_index: int) -> Literal["high", "moderate", "low"]:
@@ -193,7 +181,9 @@ def compute_submission_metrics(
             snaps_in_window = [sn for sn in snapshots if _get(sn, "captured_at") > t0]
             if snaps_in_window:
                 anchor_snap = snaps_in_window[0]
-                e_base = calculate_points(_get(anchor_snap, "score"), _get(anchor_snap, "num_comments"))
+                e_base = calculate_points(
+                    _get(anchor_snap, "score"), _get(anchor_snap, "num_comments")
+                )
                 t_base = _get(anchor_snap, "captured_at")
             else:
                 e_base = calculate_points(latest_score, latest_num_comments)
@@ -227,12 +217,43 @@ def compute_submission_metrics(
     }
 
 
-def get_dashboard_data(
+@dataclass(frozen=True)
+class SubmissionsCohortData:
+    """Precomputed submissions and snapshots cohort metrics across active window."""
+
+    submission_metrics: dict[str, dict[str, Any]]
+    release_submissions: dict[str, set[str]]
+    submissions_by_id: dict[str, dict[str, Any]]
+    snapshots_by_sub: dict[str, list[dict[str, Any]]]
+    window: WindowType
+    now: datetime
+
+    def get_metrics_24h(self) -> dict[str, dict[str, Any]]:
+        """Return 24H metrics (used for dashboard newly added scoring)."""
+        if self.window == "24H":
+            return self.submission_metrics
+        t0_24h = self.now - timedelta(hours=24)
+        return {
+            s_id: compute_submission_metrics(
+                created_utc=sub["created_utc"],
+                latest_score=sub["latest_score"],
+                latest_num_comments=sub["latest_num_comments"],
+                latest_upvote_ratio=sub["latest_upvote_ratio"],
+                snapshots=self.snapshots_by_sub.get(s_id, []),
+                window="24H",
+                now=self.now,
+                t0=t0_24h,
+            )
+            for s_id, sub in self.submissions_by_id.items()
+        }
+
+
+def fetch_submissions_and_metrics(
     session: Session,
     window: WindowType = DEFAULT_WINDOW,
     now: datetime | None = None,
-) -> DashboardResponse:
-    """Compute and construct compound Dashboard response for the given window."""
+) -> SubmissionsCohortData:
+    """Fetch all release submissions, snapshots, and compute window engagement metrics."""
     if window not in WINDOW_CONFIG:
         window = DEFAULT_WINDOW
 
@@ -242,313 +263,108 @@ def get_dashboard_data(
     spec = WINDOW_CONFIG[window]
     t0 = now - timedelta(hours=spec.duration_hours)
 
-    # 1. Fetch releases ordered by created_at ASC, id ASC for deterministic album display casing
-    release_sql = text(
-        r"""
-        SELECT
-            r.id,
-            r.combined_artist,
-            r.album_title,
-            r.variant,
-            r.retailer_name,
-            r.created_at,
-            LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(r.combined_artist, '[\u2010-\u2015\u2212]', '-', 'g'), '\s+', ' ', 'g'))) AS norm_artist,
-            LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(r.album_title, '[\u2010-\u2015\u2212]', '-', 'g'), '\s+', ' ', 'g'))) AS norm_album
-        FROM releases r
-        ORDER BY r.created_at ASC, r.id ASC
-        """
-    )
-    releases_rows = session.execute(release_sql).fetchall()
+    sub_rows = session.execute(
+        text(
+            """
+            SELECT
+                sr.release_id,
+                s.id AS submission_id,
+                s.reddit_id,
+                s.title,
+                s.url,
+                s.created_utc,
+                s.latest_score,
+                s.latest_num_comments,
+                s.latest_upvote_ratio
+            FROM submission_releases sr
+            JOIN submissions s ON sr.submission_id = s.id
+            WHERE s.is_release = TRUE
+            """
+        )
+    ).fetchall()
 
-    # 2. Fetch linked submissions where is_release = TRUE
-    sub_sql = text(
-        """
-        SELECT
-            sr.release_id,
-            s.id AS submission_id,
-            s.created_utc,
-            s.latest_score,
-            s.latest_num_comments,
-            s.latest_upvote_ratio
-        FROM submission_releases sr
-        JOIN submissions s ON sr.submission_id = s.id
-        WHERE s.is_release = TRUE
-        """
-    )
-    sub_rows = session.execute(sub_sql).fetchall()
+    snap_rows = session.execute(
+        text(
+            """
+            SELECT
+                ss.submission_id,
+                ss.score,
+                ss.num_comments,
+                ss.captured_at
+            FROM submission_snapshots ss
+            JOIN submissions s ON ss.submission_id = s.id
+            WHERE s.is_release = TRUE
+            ORDER BY ss.submission_id, ss.captured_at ASC
+            """
+        )
+    ).fetchall()
 
-    # 3. Fetch snapshots for release submissions
-    snap_sql = text(
-        """
-        SELECT
-            ss.submission_id,
-            ss.score,
-            ss.num_comments,
-            ss.captured_at
-        FROM submission_snapshots ss
-        JOIN submissions s ON ss.submission_id = s.id
-        WHERE s.is_release = TRUE
-        ORDER BY ss.submission_id, ss.captured_at ASC
-        """
-    )
-    snap_rows = session.execute(snap_sql).fetchall()
-
-    # Group snapshots by submission_id
-    snapshots_by_sub: dict[str, list[Any]] = defaultdict(list)
+    snapshots_by_sub: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for sn in snap_rows:
-        snapshots_by_sub[sn.submission_id].append(sn)
+        snapshots_by_sub[sn.submission_id].append(
+            {
+                "captured_at": sn.captured_at,
+                "score": sn.score,
+                "num_comments": sn.num_comments,
+            }
+        )
 
-    # Compute submission metrics
     submission_metrics: dict[str, dict[str, Any]] = {}
     release_submissions: dict[str, set[str]] = defaultdict(set)
+    submissions_by_id: dict[str, dict[str, Any]] = {}
 
     for row in sub_rows:
-        s_id = row.submission_id
+        s_id = str(row.submission_id)
         r_id = str(row.release_id)
         release_submissions[r_id].add(s_id)
 
-        if s_id in submission_metrics:
-            continue
+        if s_id not in submissions_by_id:
+            submissions_by_id[s_id] = {
+                "id": s_id,
+                "reddit_id": row.reddit_id,
+                "title": row.title,
+                "url": row.url,
+                "created_utc": row.created_utc,
+                "latest_score": row.latest_score,
+                "latest_num_comments": row.latest_num_comments,
+                "latest_upvote_ratio": row.latest_upvote_ratio,
+            }
 
-        submission_metrics[s_id] = compute_submission_metrics(
-            created_utc=row.created_utc,
-            latest_score=row.latest_score,
-            latest_num_comments=row.latest_num_comments,
-            latest_upvote_ratio=row.latest_upvote_ratio,
-            snapshots=snapshots_by_sub.get(s_id, []),
-            window=window,
-            now=now,
-            t0=t0,
-        )
-
-    # 24H submission metrics specifically for Newly Added evaluation
-    if window == "24H":
-        submission_metrics_24h = submission_metrics
-    else:
-        t0_24h = now - timedelta(hours=24)
-        submission_metrics_24h = {
-            row.submission_id: compute_submission_metrics(
+        if s_id not in submission_metrics:
+            submission_metrics[s_id] = compute_submission_metrics(
                 created_utc=row.created_utc,
                 latest_score=row.latest_score,
                 latest_num_comments=row.latest_num_comments,
                 latest_upvote_ratio=row.latest_upvote_ratio,
-                snapshots=snapshots_by_sub.get(row.submission_id, []),
-                window="24H",
+                snapshots=snapshots_by_sub.get(s_id, []),
+                window=window,
                 now=now,
-                t0=t0_24h,
+                t0=t0,
             )
-            for row in sub_rows
-        }
 
-    # 24H cohort max for newly added scaling
-    max_rel_raw_24h = max(
-        (
-            sum(submission_metrics_24h[s]["raw_hype"] for s in release_submissions.get(str(r.id), set()))
-            for r in releases_rows
-        ),
-        default=0.0,
-    )
-
-    # Group releases into derived albums
-    albums_dict: dict[str, dict[str, Any]] = {}
-    release_dict: dict[str, dict[str, Any]] = {}
-
-    for r in releases_rows:
-        rel_id = str(r.id)
-        alb_id = derive_album_id(r.norm_artist, r.norm_album)
-
-        if alb_id not in albums_dict:
-            albums_dict[alb_id] = {
-                "album_id": alb_id,
-                "album_title": r.album_title,
-                "combined_artist": r.combined_artist,
-                "release_count": 1,
-                "earliest_created_at": r.created_at,
-                "release_ids": [rel_id],
-            }
-        else:
-            albums_dict[alb_id]["release_count"] += 1
-            albums_dict[alb_id]["release_ids"].append(rel_id)
-
-        # Release metrics calculation
-        linked_subs = release_submissions.get(rel_id, set())
-        rel_velocity = round(sum(submission_metrics[s]["velocity"] for s in linked_subs), 1)
-        rel_raw_hype = sum(submission_metrics[s]["raw_hype"] for s in linked_subs)
-
-        if linked_subs:
-            latest_sub_id = max(linked_subs, key=lambda s: submission_metrics[s]["created_utc"])
-            latest_sub_meta = submission_metrics[latest_sub_id]
-            rel_score = latest_sub_meta["score"]
-            rel_num_comments = latest_sub_meta["num_comments"]
-            rel_posted_at = latest_sub_meta["created_utc"]
-            rel_first_seen_at = min(submission_metrics[s]["created_utc"] for s in linked_subs)
-        else:
-            rel_score = 0
-            rel_num_comments = 0
-            rel_posted_at = r.created_at
-            rel_first_seen_at = r.created_at
-
-        release_dict[rel_id] = {
-            "release_id": rel_id,
-            "album_id": alb_id,
-            "album_title": r.album_title,
-            "combined_artist": r.combined_artist,
-            "variant": r.variant,
-            "retailer_name": r.retailer_name,
-            "created_at": r.created_at,
-            "velocity": rel_velocity,
-            "raw_hype": rel_raw_hype,
-            "score": rel_score,
-            "num_comments": rel_num_comments,
-            "posted_at": rel_posted_at,
-            "first_seen_at": rel_first_seen_at,
-            "monogram_key": rel_id,
-        }
-
-    # Album metrics calculation across deduplicated union of submissions
-    for alb in albums_dict.values():
-        union_subs: set[str] = set()
-        for r_id in alb["release_ids"]:
-            union_subs.update(release_submissions.get(r_id, set()))
-
-        alb_velocity = round(sum(submission_metrics[s]["velocity"] for s in union_subs), 1)
-        alb_raw_hype = sum(submission_metrics[s]["raw_hype"] for s in union_subs)
-
-        alb["velocity"] = alb_velocity
-        alb["raw_hype"] = alb_raw_hype
-        alb["submission_count"] = len(union_subs)
-        alb["monogram_key"] = alb["album_id"]
-
-    # Normalize albums Hype Index
-    album_raw_hypes = [alb["raw_hype"] for alb in albums_dict.values()]
-    max_alb_raw = max(album_raw_hypes) if album_raw_hypes else 0.0
-
-    for alb in albums_dict.values():
-        h_idx = calculate_hype_index(alb["raw_hype"], max_alb_raw, REFERENCE_FLOOR)
-        alb["hype_index"] = h_idx
-        alb["tier"] = get_hype_tier(h_idx)
-
-    # Normalize releases Hype Index
-    release_raw_hypes = [rel["raw_hype"] for rel in release_dict.values()]
-    max_rel_raw = max(release_raw_hypes) if release_raw_hypes else 0.0
-
-    for rel in release_dict.values():
-        h_idx = calculate_hype_index(rel["raw_hype"], max_rel_raw, REFERENCE_FLOOR)
-        rel["hype_index"] = h_idx
-        rel["tier"] = get_hype_tier(h_idx)
-
-    # 1. Top 5 Albums
-    sorted_albums = sorted(
-        albums_dict.values(),
-        key=lambda a: (
-            -a["hype_index"],
-            -a["velocity"],
-            -a["release_count"],
-            a["album_title"],
-        ),
-    )
-    top_albums = [
-        AlbumLeaderboardItem(
-            album_id=a["album_id"],
-            album_title=a["album_title"],
-            combined_artist=a["combined_artist"],
-            hype_index=a["hype_index"],
-            hype_velocity=a["velocity"],
-            tier=a["tier"],
-            release_count=a["release_count"],
-            submission_count=a["submission_count"],
-            monogram_key=a["monogram_key"],
-        )
-        for a in sorted_albums[:5]
-    ]
-
-    # 2. Top 5 Releases
-    sorted_releases = sorted(
-        release_dict.values(),
-        key=lambda r: (
-            -r["hype_index"],
-            -r["velocity"],
-            -r["created_at"].timestamp(),
-            r["release_id"],
-        ),
-    )
-    top_releases = [
-        ReleaseLeaderboardItem(
-            release_id=r["release_id"],
-            album_id=r["album_id"],
-            album_title=r["album_title"],
-            combined_artist=r["combined_artist"],
-            variant=r["variant"],
-            retailer_name=r["retailer_name"],
-            hype_index=r["hype_index"],
-            hype_velocity=r["velocity"],
-            tier=r["tier"],
-            monogram_key=r["monogram_key"],
-        )
-        for r in sorted_releases[:5]
-    ]
-
-    # 3. Newly Added Releases (first seen within last 24h, up to 5, strictly evaluated in 24H window)
-    cutoff_24h = now - timedelta(hours=24)
-    newly_added_candidates = [
-        r for r in release_dict.values() if r["first_seen_at"] >= cutoff_24h
-    ]
-    sorted_newly_added = sorted(
-        newly_added_candidates,
-        key=lambda r: (-r["first_seen_at"].timestamp(), r["release_id"]),
-    )
-    newly_added = []
-    for rel_item in sorted_newly_added[:5]:
-        rel_id = str(rel_item["release_id"])
-        rel_subs = release_submissions.get(rel_id, set())
-        rel_raw_24h = sum(submission_metrics_24h[s]["raw_hype"] for s in rel_subs)
-        rel_vel_24h = round(sum(submission_metrics_24h[s]["velocity"] for s in rel_subs), 1)
-        h_idx_24h = calculate_hype_index(rel_raw_24h, max_rel_raw_24h, REFERENCE_FLOOR)
-        newly_added.append(
-            NewlyAddedReleaseItem(
-                release_id=rel_id,
-                album_id=rel_item["album_id"],
-                album_title=rel_item["album_title"],
-                combined_artist=rel_item["combined_artist"],
-                variant=rel_item["variant"],
-                retailer_name=rel_item["retailer_name"],
-                hype_index=h_idx_24h,
-                hype_velocity=rel_vel_24h,
-                tier=get_hype_tier(h_idx_24h),
-                monogram_key=rel_item["monogram_key"],
-                first_seen_at=rel_item["first_seen_at"],
-                latest_score=rel_item["score"],
-            )
-        )
-
-    # 4. Live Release Feed (up to 50 recent releases ordered by recency)
-    sorted_feed = sorted(
-        release_dict.values(),
-        key=lambda r: (-r["posted_at"].timestamp(), r["release_id"]),
-    )
-    live_feed = [
-        LiveFeedItem(
-            release_id=r["release_id"],
-            album_id=r["album_id"],
-            album_title=r["album_title"],
-            combined_artist=r["combined_artist"],
-            variant=r["variant"],
-            retailer_name=r["retailer_name"],
-            hype_index=r["hype_index"],
-            hype_velocity=r["velocity"],
-            tier=r["tier"],
-            score=r["score"],
-            num_comments=r["num_comments"],
-            posted_at=r["posted_at"],
-            monogram_key=r["monogram_key"],
-        )
-        for r in sorted_feed[:50]
-    ]
-
-    return DashboardResponse(
+    return SubmissionsCohortData(
+        submission_metrics=submission_metrics,
+        release_submissions=release_submissions,
+        submissions_by_id=submissions_by_id,
+        snapshots_by_sub=snapshots_by_sub,
         window=window,
-        top_albums=top_albums,
-        top_releases=top_releases,
-        newly_added=newly_added,
-        live_feed=live_feed,
+        now=now,
     )
+
+
+__all__ = [
+    "DEFAULT_WINDOW",
+    "REFERENCE_FLOOR",
+    "WINDOW_CONFIG",
+    "SubmissionsCohortData",
+    "WindowSpec",
+    "WindowType",
+    "calculate_hype_index",
+    "calculate_points",
+    "calculate_raw_hype",
+    "calculate_velocity",
+    "compute_submission_metrics",
+    "fetch_submissions_and_metrics",
+    "get_hype_tier",
+    "normalize_cohort_hype",
+]

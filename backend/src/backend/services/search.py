@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.schemas.search import QuickSearchResponse, SearchResultItem
-from backend.services.catalog import derive_album_id, get_artist_catalog_counts
+from backend.services.catalog import get_artist_catalog_counts
 
 
 def search_catalog(session: Session, query: str, limit: int = 5) -> QuickSearchResponse:
@@ -20,54 +20,40 @@ def search_catalog(session: Session, query: str, limit: int = 5) -> QuickSearchR
 
     search_term = f"%{clean_query}%"
 
-    # 1. Search Derived Albums
+    # 1. Search Persisted Albums
     album_sql = text(
-        r"""
-        WITH normalized_releases AS (
-            SELECT
-                id,
-                combined_artist,
-                album_title,
-                created_at,
-                LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(combined_artist, '[\u2010-\u2015\u2212]', '-', 'g'), '\s+', ' ', 'g'))) AS norm_artist,
-                LOWER(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(album_title, '[\u2010-\u2015\u2212]', '-', 'g'), '\s+', ' ', 'g'))) AS norm_album
-            FROM releases
-        ),
-        ranked_releases AS (
-            SELECT
-                id,
-                combined_artist,
-                album_title,
-                norm_artist,
-                norm_album,
-                created_at,
-                ROW_NUMBER() OVER (PARTITION BY norm_artist, norm_album ORDER BY created_at ASC, id ASC) AS rn,
-                COUNT(*) OVER (PARTITION BY norm_artist, norm_album) AS release_count
-            FROM normalized_releases
-        )
-        SELECT norm_artist, norm_album, combined_artist, album_title, release_count, created_at
-        FROM ranked_releases
-        WHERE rn = 1
-          AND (combined_artist ILIKE :term OR album_title ILIKE :term)
-        ORDER BY created_at DESC, combined_artist ASC
+        """
+        SELECT
+            a.id,
+            a.combined_artist,
+            a.title AS album_title,
+            a.created_at,
+            COUNT(r.id) AS release_count
+        FROM albums a
+        LEFT JOIN releases r ON r.album_id = a.id
+        WHERE a.combined_artist ILIKE :term
+           OR a.title ILIKE :term
+        GROUP BY a.id, a.combined_artist, a.title, a.created_at
+        ORDER BY a.created_at DESC, a.combined_artist ASC
         LIMIT :limit
         """
     )
     album_rows = session.execute(album_sql, {"term": search_term, "limit": limit}).fetchall()
     album_items: list[SearchResultItem] = []
     for row in album_rows:
-        alb_id = derive_album_id(row.norm_artist, row.norm_album)
-        pressings_suffix = "pressing" if row.release_count == 1 else "pressings"
+        alb_id = str(row.id)
+        rel_count = int(row.release_count)
+        pressings_suffix = "pressing" if rel_count == 1 else "pressings"
         album_items.append(
             SearchResultItem(
                 id=alb_id,
                 title=row.album_title,
-                subtitle=f"{row.combined_artist} · {row.release_count} {pressings_suffix}",
+                subtitle=f"{row.combined_artist} · {rel_count} {pressings_suffix}",
                 monogram_key=alb_id,
                 extra={
                     "combined_artist": row.combined_artist,
                     "album_title": row.album_title,
-                    "release_count": row.release_count,
+                    "release_count": rel_count,
                 },
             )
         )
@@ -75,13 +61,21 @@ def search_catalog(session: Session, query: str, limit: int = 5) -> QuickSearchR
     # 2. Search Physical Releases
     release_sql = text(
         """
-        SELECT id, combined_artist, album_title, variant, retailer_name, created_at
-        FROM releases
-        WHERE combined_artist ILIKE :term
-           OR album_title ILIKE :term
-           OR variant ILIKE :term
-           OR retailer_name ILIKE :term
-        ORDER BY created_at DESC, id ASC
+        SELECT
+            r.id,
+            r.album_id,
+            a.combined_artist,
+            a.title AS album_title,
+            r.variant,
+            r.retailer_name,
+            r.created_at
+        FROM releases r
+        JOIN albums a ON r.album_id = a.id
+        WHERE a.combined_artist ILIKE :term
+           OR a.title ILIKE :term
+           OR r.variant ILIKE :term
+           OR r.retailer_name ILIKE :term
+        ORDER BY r.created_at DESC, r.id ASC
         LIMIT :limit
         """
     )
@@ -102,6 +96,7 @@ def search_catalog(session: Session, query: str, limit: int = 5) -> QuickSearchR
                 subtitle=subtitle,
                 monogram_key=rel_id,
                 extra={
+                    "album_id": str(row.album_id),
                     "combined_artist": row.combined_artist,
                     "album_title": row.album_title,
                     "variant": row.variant,
