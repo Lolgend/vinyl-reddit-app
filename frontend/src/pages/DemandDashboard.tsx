@@ -5,9 +5,20 @@ import { AlertTriangle, ArrowUpRight, Flame, Layers, Search, Sparkles, TrendingU
 import { VinylMonogram } from '../components/VinylMonogram'
 import { TierBadge } from '../components/TierBadge'
 import { formatRelativeTime } from '../utils/formatTime'
+import {
+  FOCUS_RING_CLASS,
+  PILL_BUTTON_ACTIVE_CLASS,
+  PILL_BUTTON_BASE_CLASS,
+  PILL_BUTTON_INACTIVE_CLASS,
+} from '../utils/uiClasses'
+
+const ALL_FILTER = 'all' as const
+const DEFAULT_VARIANT_LABEL = 'Standard Pressing'
+const DEFAULT_RETAILER_LABEL = 'Wide / Unspecified'
 
 type WindowType = '24H' | '7D' | '1M'
-type TierFilter = 'all' | 'high' | 'moderate' | 'low'
+type TierFilter = typeof ALL_FILTER | 'high' | 'moderate' | 'low'
+type RetailerFilter = typeof ALL_FILTER | (string & {})
 type SortOption = 'hype_index' | 'velocity' | 'recency' | 'upvotes'
 
 interface AlbumLeaderboardItem {
@@ -91,7 +102,7 @@ async function fetchDashboard(window: WindowType): Promise<DashboardResponse> {
 const WINDOW_OPTIONS: WindowType[] = ['24H', '7D', '1M']
 
 const TIER_OPTIONS: Array<{ value: TierFilter; label: string }> = [
-  { value: 'all', label: 'All' },
+  { value: ALL_FILTER, label: 'All' },
   { value: 'high', label: 'High 75–100' },
   { value: 'moderate', label: 'Mod 40–74' },
   { value: 'low', label: 'Low 0–39' },
@@ -102,9 +113,6 @@ const TIER_BAR_CLASS: Record<'high' | 'moderate' | 'low', string> = {
   moderate: 'bg-hype-moderate',
   low: 'bg-ink-secondary',
 }
-
-const FOCUS_RING_CLASS =
-  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary'
 
 interface HypeWindowSwitcherProps {
   activeWindow: WindowType
@@ -131,10 +139,8 @@ const HypeWindowSwitcher: React.FC<HypeWindowSwitcherProps> = ({
           data-window={w}
           aria-pressed={isActive}
           onClick={() => onChange(w)}
-          className={`min-h-[26px] min-w-[32px] px-2.5 py-0.5 rounded-full font-mono text-[11px] border-strong transition-colors cursor-pointer ${FOCUS_RING_CLASS} ${
-            isActive
-              ? 'bg-ink-primary text-white font-bold shadow-brutal-sm'
-              : 'bg-card text-ink-primary hover:bg-row-hover'
+          className={`${PILL_BUTTON_BASE_CLASS} ${
+            isActive ? PILL_BUTTON_ACTIVE_CLASS : PILL_BUTTON_INACTIVE_CLASS
           }`}
         >
           {w}
@@ -143,6 +149,51 @@ const HypeWindowSwitcher: React.FC<HypeWindowSwitcherProps> = ({
     })}
   </div>
 )
+
+interface ReleaseLeaderboardRowProps {
+  release: ReleaseLeaderboardItem
+  window: WindowType
+  leftBadge: React.ReactNode
+  rightMeta: string
+}
+
+const ReleaseLeaderboardRow: React.FC<ReleaseLeaderboardRowProps> = ({
+  release,
+  window,
+  leftBadge,
+  rightMeta,
+}) => {
+  const fullTitle = `${release.combined_artist} — ${release.album_title}`
+  return (
+    <div className="flex items-center justify-between gap-3 p-2 bg-row-hover border-subtle rounded-[4px] hover:border-ink-primary transition-colors min-h-[52px]">
+      <div className="flex items-center gap-2.5 min-w-0">
+        {leftBadge}
+        <VinylMonogram
+          name={release.album_title}
+          entityId={release.monogram_key || release.release_id}
+          size={32}
+        />
+        <div className="min-w-0">
+          <Link
+            to={`/releases/${release.release_id}?window=${window}`}
+            className={`font-grotesk font-bold text-xs text-ink-primary hover:underline truncate block rounded-[2px] ${FOCUS_RING_CLASS}`}
+            title={fullTitle}
+          >
+            {fullTitle}
+          </Link>
+          <div className="text-[11px] text-ink-secondary font-sans truncate">
+            {release.variant || DEFAULT_VARIANT_LABEL} ·{' '}
+            {release.retailer_name || DEFAULT_RETAILER_LABEL}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-col items-end shrink-0">
+        <TierBadge value={release.hype_index} tier={release.tier} />
+        <span className="font-mono text-[10px] text-ink-secondary mt-0.5">{rightMeta}</span>
+      </div>
+    </div>
+  )
+}
 
 const LeaderboardSkeletonRows: React.FC<{ testId: string }> = ({ testId }) => (
   <>
@@ -221,8 +272,8 @@ export const DemandDashboard: React.FC = () => {
 
   // Live Release Feed controls
   const [feedQuery, setFeedQuery] = useState('')
-  const [tierFilter, setTierFilter] = useState<TierFilter>('all')
-  const [retailerFilter, setRetailerFilter] = useState<string>('all')
+  const [tierFilter, setTierFilter] = useState<TierFilter>(ALL_FILTER)
+  const [retailerFilter, setRetailerFilter] = useState<RetailerFilter>(ALL_FILTER)
   const [sortBy, setSortBy] = useState<SortOption>('hype_index')
 
   const {
@@ -270,7 +321,7 @@ export const DemandDashboard: React.FC = () => {
     const retailers = new Set<string>()
     for (const item of fixed24hData?.live_feed ?? []) {
       const name = item.retailer_name?.trim()
-      if (name && name !== 'Wide / Unspecified') {
+      if (name && name !== DEFAULT_RETAILER_LABEL) {
         retailers.add(name)
       }
     }
@@ -293,11 +344,11 @@ export const DemandDashboard: React.FC = () => {
       )
     }
 
-    if (tierFilter !== 'all') {
+    if (tierFilter !== ALL_FILTER) {
       result = result.filter((item) => item.tier === tierFilter)
     }
 
-    if (retailerFilter !== 'all') {
+    if (retailerFilter !== ALL_FILTER) {
       result = result.filter((item) => item.retailer_name?.trim() === retailerFilter)
     }
 
@@ -399,7 +450,7 @@ export const DemandDashboard: React.FC = () => {
                       return (
                         <div
                           key={album.album_id}
-                          className="flex items-center justify-between gap-3 p-2 bg-row-hover border border-border-hairline rounded-[4px] hover:border-ink-primary transition-colors min-h-[52px]"
+                          className="flex items-center justify-between gap-3 p-2 bg-row-hover border-subtle rounded-[4px] hover:border-ink-primary transition-colors min-h-[52px]"
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <span className="bg-ink-primary text-white font-mono text-xs font-bold px-1.5 py-0.5 rounded-[4px] shrink-0">
@@ -474,45 +525,19 @@ export const DemandDashboard: React.FC = () => {
               <LeaderboardSkeletonRows testId="release-skeleton-row" />
             ) : (
                   <>
-                    {topReleases.map((release, idx) => {
-                      const fullTitle = `${release.combined_artist} — ${release.album_title}`
-                      return (
-                        <div
-                          key={release.release_id}
-                          className="flex items-center justify-between gap-3 p-2 bg-row-hover border border-border-hairline rounded-[4px] hover:border-ink-primary transition-colors min-h-[52px]"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="bg-ink-primary text-white font-mono text-xs font-bold px-1.5 py-0.5 rounded-[4px] shrink-0">
-                              #{idx + 1}
-                            </span>
-                            <VinylMonogram
-                              name={release.album_title}
-                              entityId={release.monogram_key || release.release_id}
-                              size={32}
-                            />
-                            <div className="min-w-0">
-                              <Link
-                                to={`/releases/${release.release_id}?window=${releaseWindow}`}
-                                className={`font-grotesk font-bold text-xs text-ink-primary hover:underline truncate block rounded-[2px] ${FOCUS_RING_CLASS}`}
-                                title={fullTitle}
-                              >
-                                {fullTitle}
-                              </Link>
-                              <div className="text-[11px] text-ink-secondary font-sans truncate">
-                                {release.variant || 'Standard Pressing'} ·{' '}
-                                {release.retailer_name || 'Wide / Unspecified'}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex flex-col items-end shrink-0">
-                            <TierBadge value={release.hype_index} tier={release.tier} />
-                            <span className="font-mono text-[10px] text-ink-secondary mt-0.5">
-                              +{release.hype_velocity} pts/hr
-                            </span>
-                          </div>
-                        </div>
-                      )
-                    })}
+                    {topReleases.map((release, idx) => (
+                      <ReleaseLeaderboardRow
+                        key={release.release_id}
+                        release={release}
+                        window={releaseWindow}
+                        leftBadge={
+                          <span className="bg-ink-primary text-white font-mono text-xs font-bold px-1.5 py-0.5 rounded-[4px] shrink-0">
+                            #{idx + 1}
+                          </span>
+                        }
+                        rightMeta={`+${release.hype_velocity} pts/hr`}
+                      />
+                    ))}
                     {/* Uniform 5-Row Padding */}
                     <LeaderboardEmptySlots
                       filledCount={topReleases.length}
@@ -544,45 +569,19 @@ export const DemandDashboard: React.FC = () => {
               <LeaderboardSkeletonRows testId="newly-added-skeleton-row" />
             ) : (
                   <>
-                    {newlyAdded.map((release) => {
-                      const fullTitle = `${release.combined_artist} — ${release.album_title}`
-                      return (
-                        <div
-                          key={release.release_id}
-                          className="flex items-center justify-between gap-3 p-2 bg-row-hover border border-border-hairline rounded-[4px] hover:border-ink-primary transition-colors min-h-[52px]"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="font-mono text-[10px] text-ink-secondary bg-card border border-border-hairline px-1.5 py-0.5 rounded shrink-0">
-                              {formatRelativeTime(release.first_seen_at)}
-                            </span>
-                            <VinylMonogram
-                              name={release.album_title}
-                              entityId={release.monogram_key || release.release_id}
-                              size={32}
-                            />
-                            <div className="min-w-0">
-                              <Link
-                                to={`/releases/${release.release_id}?window=24H`}
-                                className={`font-grotesk font-bold text-xs text-ink-primary hover:underline truncate block rounded-[2px] ${FOCUS_RING_CLASS}`}
-                                title={fullTitle}
-                              >
-                                {fullTitle}
-                              </Link>
-                              <div className="text-[11px] text-ink-secondary font-sans truncate">
-                                {release.variant || 'Standard Pressing'} ·{' '}
-                                {release.retailer_name || 'Wide / Unspecified'}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex flex-col items-end shrink-0">
-                            <TierBadge value={release.hype_index} tier={release.tier} />
-                            <span className="font-mono text-[10px] text-ink-secondary mt-0.5">
-                              +{release.hype_velocity} pts/hr · {release.latest_score ?? 0} pts
-                            </span>
-                          </div>
-                        </div>
-                      )
-                    })}
+                    {newlyAdded.map((release) => (
+                      <ReleaseLeaderboardRow
+                        key={release.release_id}
+                        release={release}
+                        window="24H"
+                        leftBadge={
+                          <span className="font-mono text-[10px] text-ink-secondary bg-card border-subtle px-1.5 py-0.5 rounded shrink-0">
+                            {formatRelativeTime(release.first_seen_at)}
+                          </span>
+                        }
+                        rightMeta={`+${release.hype_velocity} pts/hr · ${release.latest_score ?? 0} pts`}
+                      />
+                    ))}
                     {/* Uniform 5-Row Padding */}
                     <LeaderboardEmptySlots
                       filledCount={newlyAdded.length}
@@ -649,10 +648,8 @@ export const DemandDashboard: React.FC = () => {
                     type="button"
                     aria-pressed={isActive}
                     onClick={() => setTierFilter(t.value)}
-                    className={`min-h-[26px] min-w-[32px] px-2.5 py-0.5 rounded-full font-mono text-[11px] border-strong transition-colors cursor-pointer ${FOCUS_RING_CLASS} ${
-                      isActive
-                        ? 'bg-ink-primary text-white font-bold shadow-brutal-sm'
-                        : 'bg-card text-ink-primary hover:bg-row-hover'
+                    className={`${PILL_BUTTON_BASE_CLASS} ${
+                      isActive ? PILL_BUTTON_ACTIVE_CLASS : PILL_BUTTON_INACTIVE_CLASS
                     }`}
                   >
                     {t.label}
@@ -671,7 +668,7 @@ export const DemandDashboard: React.FC = () => {
                 onChange={(e) => setRetailerFilter(e.target.value)}
                 className={`bg-card border-strong rounded-[4px] px-2 py-1 min-h-[28px] max-w-full font-mono text-xs text-ink-primary shadow-brutal-sm cursor-pointer ${FOCUS_RING_CLASS}`}
               >
-                <option value="all">All Retailers</option>
+                <option value={ALL_FILTER}>All Retailers</option>
                 {retailerOptions.map((retailer) => (
                   <option key={retailer} value={retailer}>
                     {retailer}
@@ -718,7 +715,7 @@ export const DemandDashboard: React.FC = () => {
                 Array.from({ length: 5 }).map((_, idx) => (
                   <tr key={`feed-skel-${idx}`} data-testid="feed-skeleton-row" className="h-[56px]">
                     <td colSpan={7} className="py-3 px-3">
-                      <div className="h-8 bg-border-hairline border-strong rounded-[4px] animate-pulse" />
+                      <div className="h-8 bg-accent-sand border-strong rounded-[4px] animate-pulse" />
                     </td>
                   </tr>
                 ))
@@ -734,17 +731,17 @@ export const DemandDashboard: React.FC = () => {
                           Query: &quot;{feedQuery}&quot;
                         </span>
                       )}
-                      {tierFilter !== 'all' && (
+                      {tierFilter !== ALL_FILTER && (
                         <span className="inline-block bg-canvas border border-ink-primary px-2.5 py-0.5 rounded font-mono text-xs text-ink-primary">
                           Tier: {tierFilter.toUpperCase()}
                         </span>
                       )}
-                      {retailerFilter !== 'all' && (
+                      {retailerFilter !== ALL_FILTER && (
                         <span className="inline-block bg-canvas border border-ink-primary px-2.5 py-0.5 rounded font-mono text-xs text-ink-primary">
                           Retailer: {retailerFilter}
                         </span>
                       )}
-                      {!feedQuery.trim() && tierFilter === 'all' && retailerFilter === 'all' && (
+                      {!feedQuery.trim() && tierFilter === ALL_FILTER && retailerFilter === ALL_FILTER && (
                         <span>No live release feed records matched your current filters.</span>
                       )}
                     </div>
@@ -752,12 +749,12 @@ export const DemandDashboard: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setFeedQuery('')
-                        setTierFilter('all')
-                        setRetailerFilter('all')
+                        setTierFilter(ALL_FILTER)
+                        setRetailerFilter(ALL_FILTER)
                         setSortBy('hype_index')
                       }}
                       data-testid="reset-filters-btn"
-                      className={`mt-4 px-4 py-2 bg-accent-primary border-strong rounded-[4px] font-mono text-xs font-bold text-ink-primary shadow-brutal-sm hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[1px] active:translate-y-[1px] transition-transform cursor-pointer ${FOCUS_RING_CLASS}`}
+                      className={`mt-4 px-4 py-2 bg-accent-primary border-strong rounded-[4px] font-mono text-xs font-bold text-ink-primary shadow-brutal-sm hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-brutal-md active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-transform cursor-pointer ${FOCUS_RING_CLASS}`}
                     >
                       Reset Filters
                     </button>
@@ -795,14 +792,14 @@ export const DemandDashboard: React.FC = () => {
                     {/* 2. Variant */}
                     <td className="py-3 px-3">
                       <span className="inline-block border-strong px-2 py-0.5 rounded-[4px] font-mono text-[11px] bg-card text-ink-primary shadow-brutal-sm max-w-[160px] truncate">
-                        {item.variant || 'Standard Pressing'}
+                        {item.variant || DEFAULT_VARIANT_LABEL}
                       </span>
                     </td>
 
                     {/* 3. Retailer */}
                     <td className="py-3 px-3">
                       <span className="text-ink-secondary font-sans text-xs max-w-[140px] truncate block">
-                        {item.retailer_name || 'Wide / Unspecified'}
+                        {item.retailer_name || DEFAULT_RETAILER_LABEL}
                       </span>
                     </td>
 
@@ -810,7 +807,7 @@ export const DemandDashboard: React.FC = () => {
                     <td className="py-3 px-3 text-center">
                       <div className="inline-flex flex-col items-center gap-1 w-20">
                         <TierBadge value={item.hype_index} tier={item.tier} />
-                        <div className="w-full h-1.5 bg-border-hairline rounded-full overflow-hidden border border-ink-primary">
+                        <div className="w-full h-1.5 bg-accent-sand rounded-full overflow-hidden border border-ink-primary">
                           <div
                             className={`h-full ${TIER_BAR_CLASS[item.tier]}`}
                             style={{ width: `${Math.min(100, Math.max(0, item.hype_index))}%` }}

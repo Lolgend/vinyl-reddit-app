@@ -2,6 +2,7 @@ import React, { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Layers, X } from 'lucide-react'
 import { VinylMonogram } from './VinylMonogram'
+import { FOCUS_RING_CLASS } from '../utils/uiClasses'
 
 interface NavigationRailProps {
   isOpen?: boolean
@@ -48,9 +49,6 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
     onClose?.()
   }
 
-  const focusRingClass =
-    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary'
-
   const subLinks = [
     { tab: 'releases', label: 'Releases', testId: 'nav-sub-releases' },
     { tab: 'albums', label: 'Albums', testId: 'nav-sub-albums' },
@@ -69,8 +67,10 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
       )}
       <aside
         id="primary-navigation-rail"
-        className={`w-[240px] shrink-0 fixed top-0 bottom-0 left-0 bg-nav border-r-[1.5px] border-ink-primary flex flex-col justify-between text-white z-40 select-none transition-transform duration-200 lg:translate-x-0 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`w-[240px] shrink-0 fixed top-0 bottom-0 left-0 bg-nav border-r-[1.5px] border-ink-primary flex flex-col justify-between text-white z-40 select-none transition-transform duration-200 ${
+          isOpen
+            ? 'translate-x-0 visible shadow-brutal-lg lg:shadow-none'
+            : '-translate-x-full invisible lg:translate-x-0 lg:visible'
         }`}
         data-testid="navigation-rail"
       >
@@ -80,7 +80,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             <Link
               to={buildHref('/')}
               onClick={handleLinkClick}
-              className={`flex items-center gap-3 min-w-0 rounded hover:opacity-90 transition-opacity ${focusRingClass}`}
+              className={`flex items-center gap-3 min-w-0 rounded hover:opacity-90 transition-opacity ${FOCUS_RING_CLASS}`}
               data-testid="brand-header-link"
             >
               <VinylMonogram name="Vinyl Demand" entityId="brand-monogram" size={36} />
@@ -98,7 +98,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
               aria-label="Close navigation menu"
               data-testid="close-nav-button"
               onClick={() => onClose?.()}
-              className={`lg:hidden shrink-0 inline-flex items-center justify-center min-h-[28px] min-w-[28px] rounded-[4px] text-nav-muted hover:text-white hover:bg-[#1E1E22] ${focusRingClass}`}
+              className={`lg:hidden shrink-0 inline-flex items-center justify-center min-h-[28px] min-w-[28px] rounded-[4px] text-nav-muted hover:text-white hover:bg-[#1E1E22] ${FOCUS_RING_CLASS}`}
             >
               <X className="w-4 h-4" aria-hidden="true" />
             </button>
@@ -117,7 +117,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
                   to={buildHref('/')}
                   onClick={handleLinkClick}
                   aria-current={isDashboardActive ? 'page' : undefined}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded text-[13px] font-medium transition-colors ${focusRingClass} ${
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded text-[13px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
                     isDashboardActive
                       ? 'bg-[#1E1E22] text-white border-l-2 border-accent-primary font-semibold'
                       : 'text-[#A0A0A0] hover:text-white hover:bg-[#161619]'
@@ -134,7 +134,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
                     to={buildHref('/directory')}
                     onClick={handleLinkClick}
                     aria-current={isDirectoryActive && !activeTab ? 'page' : undefined}
-                    className={`flex items-center gap-2.5 px-3 py-2 rounded text-[13px] font-medium transition-colors ${focusRingClass} ${
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded text-[13px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
                       isDirectoryActive && !activeTab
                         ? 'bg-[#1E1E22] text-white border-l-2 border-accent-primary font-semibold'
                         : 'text-[#A0A0A0] hover:text-white hover:bg-[#161619]'
@@ -155,7 +155,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
                           to={buildHref('/directory', tab)}
                           onClick={handleLinkClick}
                           aria-current={isSubActive ? 'page' : undefined}
-                          className={`px-2 py-1 text-[12px] rounded transition-colors ${focusRingClass} ${
+                          className={`px-2 py-1 text-[12px] rounded transition-colors ${FOCUS_RING_CLASS} ${
                             isSubActive
                               ? 'text-white font-semibold bg-[#1E1E22]'
                               : 'text-nav-muted hover:text-white'

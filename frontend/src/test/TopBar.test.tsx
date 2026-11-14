@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TopBar } from '../components/TopBar'
@@ -253,6 +253,33 @@ describe('TopBar Global Search', () => {
     expect(listbox).toHaveAttribute('id', 'global-search-listbox')
     expect(input).toHaveAttribute('aria-expanded', 'true')
 
+    const groups = await within(listbox).findAllByRole('group')
+    expect(groups).toHaveLength(3)
+
+    const albumsGroup = within(listbox).getByRole('group', { name: 'ALBUMS' })
+    expect(albumsGroup).toHaveAttribute('aria-labelledby', 'search-group-albums')
+    expect(albumsGroup.querySelector('#search-group-albums')).toHaveAttribute('role', 'presentation')
+    expect(within(albumsGroup).getByRole('option')).toHaveAttribute(
+      'id',
+      'global-search-option-album-abc1234567890def'
+    )
+
+    const releasesGroup = within(listbox).getByRole('group', { name: 'RELEASES' })
+    expect(releasesGroup).toHaveAttribute('aria-labelledby', 'search-group-releases')
+    expect(releasesGroup.querySelector('#search-group-releases')).toHaveAttribute('role', 'presentation')
+    expect(within(releasesGroup).getByRole('option')).toHaveAttribute(
+      'id',
+      'global-search-option-release-rel-1111-2222'
+    )
+
+    const artistsGroup = within(listbox).getByRole('group', { name: 'ARTISTS' })
+    expect(artistsGroup).toHaveAttribute('aria-labelledby', 'search-group-artists')
+    expect(artistsGroup.querySelector('#search-group-artists')).toHaveAttribute('role', 'presentation')
+    expect(within(artistsGroup).getByRole('option')).toHaveAttribute(
+      'id',
+      'global-search-option-artist-art-3333-4444'
+    )
+
     const options = screen.getAllByRole('option')
     expect(options).toHaveLength(3)
     expect(options[0]).toHaveAttribute('id', 'global-search-option-album-abc1234567890def')
@@ -276,26 +303,99 @@ describe('TopBar Global Search', () => {
     expect(input).not.toHaveAttribute('aria-activedescendant')
   })
 
-  it('uses WCAG AA placeholder contrast, focus-visible outlines, and accessible clear button target size', () => {
+  it('keeps #global-search-listbox mounted with aria-expanded="true" during loading and 0-results states', async () => {
+    let resolveSearch!: (value: Response) => void
+    const pendingSearch = new Promise<Response>((resolve) => {
+      resolveSearch = resolve
+    })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/v1/health')) {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                status: 'ok',
+                database: 'connected',
+                latest_snapshot_at: new Date().toISOString(),
+              }),
+          })
+        }
+        if (url.includes('/api/v1/search')) {
+          return pendingSearch
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      })
+    )
+
+    renderTopBar()
+    const input = screen.getByRole('combobox', { name: 'Global catalog search' })
+
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'unknownzzzz' } })
+
+    // Loading state: aria-expanded="true" and #global-search-listbox exists
+    const loadingStatus = await screen.findByText('SEARCHING CATALOG...', {}, { timeout: 2000 })
+    expect(loadingStatus.closest('[role="status"]')).toBeInTheDocument()
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+    const listboxWhileLoading = screen.getByRole('listbox', { name: 'Search suggestions' })
+    expect(listboxWhileLoading).toHaveAttribute('id', 'global-search-listbox')
+
+    // Resolve with 0 results: aria-expanded="true" and #global-search-listbox still exists
+    resolveSearch({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          query: 'unknownzzzz',
+          albums: [],
+          releases: [],
+          artists: [],
+        }),
+    } as Response)
+
+    const emptyState = await screen.findByTestId('search-no-results', {}, { timeout: 2000 })
+    expect(emptyState).toHaveAttribute('role', 'status')
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+    const listboxWhenEmpty = screen.getByRole('listbox', { name: 'Search suggestions' })
+    expect(listboxWhenEmpty).toHaveAttribute('id', 'global-search-listbox')
+  })
+
+  it('uses WCAG AA placeholder contrast, focus-visible outlines, semantic tokens, and accessible button target size', () => {
     renderTopBar('/directory?q=taylor')
+
+    const openNavButton = screen.getByRole('button', { name: 'Open navigation menu' })
+    expect(openNavButton).toHaveClass(
+      'border-strong',
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-accent-primary'
+    )
+    expect(openNavButton).not.toHaveClass('border-[1.5px]')
 
     const input = screen.getByTestId('global-search-input')
     expect(input).toHaveClass(
+      'border-strong',
       'placeholder:text-ink-secondary',
       'focus-visible:outline-2',
       'focus-visible:outline-offset-2',
       'focus-visible:outline-accent-primary'
     )
-    expect(input).not.toHaveClass('focus:outline-none')
+    expect(input).not.toHaveClass('focus:outline-none', 'border-[1.5px]')
 
     const clearButton = screen.getByRole('button', { name: 'Clear search' })
     expect(clearButton).toHaveAttribute('data-testid', 'search-clear-button')
     expect(clearButton).toHaveClass(
+      'border-strong',
+      'hover:bg-accent-primary',
+      'hover:text-ink-primary',
       'min-h-[26px]',
       'min-w-[26px]',
       'focus-visible:outline-2',
       'focus-visible:outline-offset-2',
       'focus-visible:outline-accent-primary'
     )
+    expect(clearButton).not.toHaveClass('hover:bg-[#27272A]')
   })
 })

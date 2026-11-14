@@ -915,6 +915,17 @@ describe('DemandDashboard Page', () => {
 
     const resetBtn = within(emptyState).getByTestId('reset-filters-btn')
     expect(resetBtn).toHaveAttribute('type', 'button')
+    expect(resetBtn).toHaveClass(
+      'bg-accent-primary',
+      'border-strong',
+      'shadow-brutal-sm',
+      'hover:translate-x-[-1px]',
+      'hover:translate-y-[-1px]',
+      'hover:shadow-brutal-md',
+      'active:translate-x-[2px]',
+      'active:translate-y-[2px]',
+      'active:shadow-none'
+    )
     fireEvent.click(resetBtn)
 
     await waitFor(() => {
@@ -1167,6 +1178,56 @@ describe('DemandDashboard Page', () => {
           'focus-visible:outline-accent-primary'
         )
       }
+    }
+  })
+
+  it('uses bg-accent-sand for feed skeleton blocks and .border-subtle on solid leaderboard cards while preserving dashed empty slots', async () => {
+    let resolveFetch!: (value: Response) => void
+    const pendingFetch = new Promise<Response>((resolve) => {
+      resolveFetch = resolve
+    })
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(pendingFetch))
+
+    renderDashboard()
+
+    const feedSkeletonRows = await screen.findAllByTestId('feed-skeleton-row')
+    expect(feedSkeletonRows).toHaveLength(5)
+    for (const row of feedSkeletonRows) {
+      const pulseBlock = row.querySelector('.animate-pulse')
+      expect(pulseBlock).toHaveClass('bg-accent-sand', 'border-strong')
+      expect(pulseBlock).not.toHaveClass('bg-border-hairline')
+    }
+
+    resolveFetch({
+      ok: true,
+      json: () => Promise.resolve(mock24hDashboard),
+    } as Response)
+
+    const albumCard = screen.getByTestId('card-top-albums')
+    const releaseCard = screen.getByTestId('card-top-releases')
+    const newlyCard = screen.getByTestId('card-newly-added')
+
+    await waitFor(() => {
+      expect(within(newlyCard).getByText('My Bloody Valentine — Loveless')).toBeInTheDocument()
+    })
+
+    for (const [card, linkText] of [
+      [albumCard, 'Radiohead — In Rainbows'],
+      [releaseCard, 'Radiohead — In Rainbows'],
+      [newlyCard, 'My Bloody Valentine — Loveless'],
+    ] as const) {
+      const row = within(card).getByRole('link', { name: linkText }).closest('div.flex.items-center.justify-between')
+      expect(row).toHaveClass('border-subtle')
+      expect(row).not.toHaveClass('border-border-hairline')
+    }
+
+    const newlyTimestamp = within(newlyCard).getByText(/just now|ago|0m/i)
+    expect(newlyTimestamp).toHaveClass('border-subtle')
+    expect(newlyTimestamp).not.toHaveClass('border-border-hairline')
+
+    for (const slot of screen.getAllByTestId('empty-slot-album')) {
+      expect(slot).toHaveClass('border', 'border-dashed', 'border-border-hairline')
+      expect(slot).not.toHaveClass('border-subtle')
     }
   })
 })

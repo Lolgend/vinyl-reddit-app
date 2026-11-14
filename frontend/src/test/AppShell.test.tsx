@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppShell } from '../components/AppShell'
 import { NavigationRail } from '../components/NavigationRail'
@@ -63,7 +63,8 @@ describe('AppShell Responsive Drawer', () => {
 
     const rail = screen.getByTestId('navigation-rail')
     expect(rail).toHaveAttribute('id', 'primary-navigation-rail')
-    expect(rail).toHaveClass('-translate-x-full', 'lg:translate-x-0')
+    expect(rail).toHaveClass('-translate-x-full', 'invisible', 'lg:translate-x-0', 'lg:visible')
+    expect(rail).not.toHaveClass('shadow-brutal-lg')
     expect(screen.queryByTestId('nav-backdrop')).not.toBeInTheDocument()
 
     const openBtn = screen.getByRole('button', { name: 'Open navigation menu' })
@@ -74,8 +75,8 @@ describe('AppShell Responsive Drawer', () => {
     fireEvent.click(openBtn)
 
     expect(openBtn).toHaveAttribute('aria-expanded', 'true')
-    expect(rail).toHaveClass('translate-x-0')
-    expect(rail).not.toHaveClass('-translate-x-full')
+    expect(rail).toHaveClass('translate-x-0', 'visible', 'shadow-brutal-lg', 'lg:shadow-none')
+    expect(rail).not.toHaveClass('-translate-x-full', 'invisible')
     expect(screen.getByTestId('nav-backdrop')).toBeInTheDocument()
 
     const closeBtn = screen.getByRole('button', { name: 'Close navigation menu' })
@@ -83,7 +84,8 @@ describe('AppShell Responsive Drawer', () => {
     fireEvent.click(closeBtn)
 
     expect(openBtn).toHaveAttribute('aria-expanded', 'false')
-    expect(rail).toHaveClass('-translate-x-full')
+    expect(rail).toHaveClass('-translate-x-full', 'invisible', 'lg:visible')
+    expect(rail).not.toHaveClass('shadow-brutal-lg')
     expect(screen.queryByTestId('nav-backdrop')).not.toBeInTheDocument()
   })
 
@@ -122,6 +124,101 @@ describe('AppShell Responsive Drawer', () => {
     fireEvent.click(openBtn)
     fireEvent.click(screen.getByTestId('brand-header-link'))
     expect(rail).toHaveClass('-translate-x-full')
+  })
+
+  it('closes drawer on any route navigation such as TopBar global search or in-page links', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      const target = String(url)
+      if (target.includes('/api/v1/search')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              query: 'smashing',
+              albums: [
+                {
+                  id: 'abc1234567890def',
+                  title: 'Lull',
+                  subtitle: 'The Smashing Pumpkins · 3 pressings',
+                  monogram_key: 'abc1234567890def',
+                },
+              ],
+              releases: [],
+              artists: [],
+            }),
+        } as Response)
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            status: 'ok',
+            database: 'connected',
+            latest_snapshot_at: new Date().toISOString(),
+          }),
+      } as Response)
+    })
+
+    const RouteProbe = () => {
+      const location = useLocation()
+      return (
+        <div>
+          <div data-testid="active-route">{`${location.pathname}${location.search}`}</div>
+          <Link to="/directory?window=7D">Go to Directory</Link>
+        </div>
+      )
+    }
+
+    try {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={['/']}>
+            <Routes>
+              <Route element={<AppShell />}>
+                <Route path="*" element={<RouteProbe />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>
+      )
+
+      const openBtn = screen.getByRole('button', { name: 'Open navigation menu' })
+      const rail = screen.getByTestId('navigation-rail')
+
+      // 1. Open drawer on '/', then navigate via TopBar global search result
+      fireEvent.click(openBtn)
+      expect(rail).toHaveClass('translate-x-0')
+      expect(openBtn).toHaveAttribute('aria-expanded', 'true')
+
+      const searchInput = screen.getByTestId('global-search-input')
+      fireEvent.focus(searchInput)
+      fireEvent.change(searchInput, { target: { value: 'smashing' } })
+
+      const resultOption = await screen.findByTestId('search-result-abc1234567890def')
+      fireEvent.click(resultOption)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('active-route')).toHaveTextContent('/albums/abc1234567890def')
+      })
+      expect(rail).toHaveClass('-translate-x-full')
+      expect(openBtn).toHaveAttribute('aria-expanded', 'false')
+
+      // 2. Open drawer again, then navigate via an in-page link outside NavigationRail
+      fireEvent.click(openBtn)
+      expect(rail).toHaveClass('translate-x-0')
+      fireEvent.click(screen.getByRole('link', { name: 'Go to Directory' }))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('active-route')).toHaveTextContent('/directory?window=7D')
+      })
+      expect(rail).toHaveClass('-translate-x-full')
+      expect(openBtn).toHaveAttribute('aria-expanded', 'false')
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 })
 

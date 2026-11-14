@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Disc3, Menu, Search, X } from 'lucide-react'
 import { VinylMonogram } from './VinylMonogram'
 import { formatRelativeTime } from '../utils/formatTime'
+import { FOCUS_RING_CLASS } from '../utils/uiClasses'
 
 interface HealthResponse {
   status: string
@@ -33,12 +34,12 @@ interface ResultEntry {
 
 interface TopBarProps {
   isMobileNavOpen?: boolean
-  onOpenMobileNav?: () => void
+  onToggleMobileNav?: () => void
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
   isMobileNavOpen = false,
-  onOpenMobileNav,
+  onToggleMobileNav,
 }) => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -243,20 +244,29 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   const searchGroups: Array<{
     type: ResultEntry['type']
+    labelId: string
     label: string
     items: SearchItem[]
     offset: number
   }> = searchData
     ? [
-        { type: 'album' as const, label: 'ALBUMS', items: searchData.albums, offset: 0 },
+        {
+          type: 'album' as const,
+          labelId: 'search-group-albums',
+          label: 'ALBUMS',
+          items: searchData.albums,
+          offset: 0,
+        },
         {
           type: 'release' as const,
+          labelId: 'search-group-releases',
           label: 'RELEASES',
           items: searchData.releases,
           offset: searchData.albums.length,
         },
         {
           type: 'artist' as const,
+          labelId: 'search-group-artists',
           label: 'ARTISTS',
           items: searchData.artists,
           offset: searchData.albums.length + searchData.releases.length,
@@ -277,8 +287,8 @@ export const TopBar: React.FC<TopBarProps> = ({
           aria-expanded={Boolean(isMobileNavOpen)}
           aria-controls="primary-navigation-rail"
           data-testid="open-nav-button"
-          onClick={() => onOpenMobileNav?.()}
-          className="lg:hidden shrink-0 inline-flex items-center justify-center min-h-[36px] min-w-[36px] bg-card text-ink-primary border-[1.5px] border-ink-primary rounded-[4px] shadow-brutal-sm hover:bg-row-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
+          onClick={() => onToggleMobileNav?.()}
+          className={`lg:hidden shrink-0 inline-flex items-center justify-center min-h-[36px] min-w-[36px] bg-card text-ink-primary border-strong rounded-[4px] shadow-brutal-sm hover:bg-row-hover ${FOCUS_RING_CLASS}`}
         >
           <Menu className="w-4 h-4" aria-hidden="true" />
         </button>
@@ -307,7 +317,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               }}
               onKeyDown={handleKeyDown}
               placeholder="Search releases, albums, artists, variants, retailers..."
-              className="w-full pl-9 pr-24 py-2 text-xs font-medium bg-card text-ink-primary border-[1.5px] border-ink-primary rounded-[4px] shadow-brutal-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary placeholder:text-ink-secondary"
+              className={`w-full pl-9 pr-24 py-2 text-xs font-medium bg-card text-ink-primary border-strong rounded-[4px] shadow-brutal-sm placeholder:text-ink-secondary ${FOCUS_RING_CLASS}`}
               data-testid="global-search-input"
               autoComplete="off"
             />
@@ -317,14 +327,14 @@ export const TopBar: React.FC<TopBarProps> = ({
                   type="button"
                   aria-label="Clear search"
                   onClick={handleClear}
-                  className="px-2 min-h-[26px] min-w-[26px] text-[10px] font-mono font-bold uppercase bg-ink-primary text-white rounded hover:bg-[#27272A] flex items-center justify-center gap-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
+                  className={`px-2 min-h-[26px] min-w-[26px] text-[10px] font-mono font-bold uppercase bg-ink-primary text-white border-strong rounded hover:bg-accent-primary hover:text-ink-primary transition-colors flex items-center justify-center gap-0.5 ${FOCUS_RING_CLASS}`}
                   data-testid="search-clear-button"
                 >
                   <X className="w-3 h-3" aria-hidden="true" />
                   <span>CLEAR</span>
                 </button>
               ) : (
-                <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-ink-secondary bg-canvas border border-border-hairline rounded">
+                <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-ink-secondary bg-canvas border-subtle rounded">
                   ⌘K
                 </kbd>
               )}
@@ -339,12 +349,15 @@ export const TopBar: React.FC<TopBarProps> = ({
             data-testid="search-dropdown"
           >
             {isSearchLoading ? (
-              <div className="p-4 text-center font-mono text-xs text-ink-secondary flex items-center justify-center gap-2">
+              <div
+                role="status"
+                className="p-4 text-center font-mono text-xs text-ink-secondary flex items-center justify-center gap-2"
+              >
                 <Disc3 className="w-4 h-4 animate-spin text-accent-primary" aria-hidden="true" />
                 <span>SEARCHING CATALOG...</span>
               </div>
             ) : flatEntries.length === 0 ? (
-              <div className="p-6 text-center" data-testid="search-no-results">
+              <div role="status" className="p-6 text-center" data-testid="search-no-results">
                 <div className="font-mono text-xs font-bold text-ink-primary uppercase tracking-wider">
                   0 MATCHING RECORDS
                 </div>
@@ -352,11 +365,22 @@ export const TopBar: React.FC<TopBarProps> = ({
                   No albums, releases, or artists found for &quot;{debouncedQuery}&quot;
                 </div>
               </div>
-            ) : (
-              <div id="global-search-listbox" role="listbox" aria-label="Search suggestions">
-                {searchGroups.map((group) => (
-                  <div key={group.type} className="border-b border-subtle last:border-b-0">
-                    <div className="font-mono text-[10px] font-bold text-ink-secondary uppercase px-3 py-1.5 bg-row-hover border-b border-subtle tracking-wider">
+            ) : null}
+
+            <div id="global-search-listbox" role="listbox" aria-label="Search suggestions">
+              {!isSearchLoading &&
+                searchGroups.map((group) => (
+                  <div
+                    key={group.type}
+                    role="group"
+                    aria-labelledby={group.labelId}
+                    className="border-b border-subtle last:border-b-0"
+                  >
+                    <div
+                      id={group.labelId}
+                      role="presentation"
+                      className="font-mono text-[10px] font-bold text-ink-secondary uppercase px-3 py-1.5 bg-row-hover border-b border-subtle tracking-wider"
+                    >
                       {group.label}
                     </div>
                     {group.items.map((item, idx) => {
@@ -390,8 +414,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                     })}
                   </div>
                 ))}
-              </div>
-            )}
+            </div>
           </div>
         )}
         </div>

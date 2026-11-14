@@ -1,10 +1,18 @@
 import React, { useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { NavigationRail } from './NavigationRail'
 import { TopBar } from './TopBar'
 
 export const AppShell: React.FC = () => {
+  const location = useLocation()
+  const routeKey = `${location.pathname}${location.search}`
+  const [prevRouteKey, setPrevRouteKey] = useState(routeKey)
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
+
+  if (routeKey !== prevRouteKey) {
+    setPrevRouteKey(routeKey)
+    setIsMobileNavOpen(false)
+  }
 
   return (
     <div className="min-h-screen flex bg-canvas text-ink-primary font-sans antialiased">
@@ -19,7 +27,7 @@ export const AppShell: React.FC = () => {
         {/* 64px Top Search & Provenance Bar */}
         <TopBar
           isMobileNavOpen={isMobileNavOpen}
-          onOpenMobileNav={() => setIsMobileNavOpen((prev) => !prev)}
+          onToggleMobileNav={() => setIsMobileNavOpen((prev) => !prev)}
         />
 
         {/* Viewport Workspace */}
