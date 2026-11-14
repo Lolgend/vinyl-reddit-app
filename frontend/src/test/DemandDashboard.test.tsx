@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, Link, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { DemandDashboard } from '../pages/DemandDashboard'
 
@@ -137,6 +137,52 @@ const mock7dDashboard = {
       monogram_key: 'alb-7d-1',
     },
   ],
+  top_releases: [
+    {
+      release_id: 'rel-7d-1',
+      album_id: 'alb-7d-2',
+      album_title: 'Dummy',
+      combined_artist: 'Portishead',
+      variant: '180g Reissue',
+      retailer_name: 'Rough Trade',
+      hype_index: 88,
+      hype_velocity: 11.4,
+      tier: 'high',
+      monogram_key: 'rel-7d-1',
+    },
+  ],
+}
+
+const mock1mDashboard = {
+  ...mock24hDashboard,
+  window: '1M',
+  top_albums: [
+    {
+      album_id: 'alb-1m-1',
+      album_title: 'Kid A',
+      combined_artist: 'Radiohead',
+      hype_index: 90,
+      hype_velocity: 18.0,
+      tier: 'high',
+      release_count: 2,
+      submission_count: 6,
+      monogram_key: 'alb-1m-1',
+    },
+  ],
+  top_releases: [
+    {
+      release_id: 'rel-1m-1',
+      album_id: 'alb-1m-1',
+      album_title: 'Kid A',
+      combined_artist: 'Radiohead',
+      variant: 'Cream Double LP',
+      retailer_name: 'XL Recordings',
+      hype_index: 91,
+      hype_velocity: 16.2,
+      tier: 'high',
+      monogram_key: 'rel-1m-1',
+    },
+  ],
 }
 
 describe('DemandDashboard Page', () => {
@@ -156,6 +202,12 @@ describe('DemandDashboard Page', () => {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve(mock7dDashboard),
+          })
+        }
+        if (url.includes('window=1M')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mock1mDashboard),
           })
         }
         return Promise.resolve({
@@ -195,7 +247,55 @@ describe('DemandDashboard Page', () => {
     expect(screen.getByText(/95 pts/i)).toBeInTheDocument()
   })
 
-  it('renders uniform 5 rows with dashed placeholders across all 3 leaderboard cards', async () => {
+  it('uses adaptive xl 3-column grid, consolidated h2 headings, and complete leaderboard attribution', async () => {
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Radiohead — In Rainbows').length).toBeGreaterThanOrEqual(1)
+    })
+
+    // Adaptive grid: 1 column below 1280px (xl), 3 columns at 1280px+
+    const albumCard = screen.getByTestId('card-top-albums')
+    const releaseCard = screen.getByTestId('card-top-releases')
+    const newlyCard = screen.getByTestId('card-newly-added')
+    expect(albumCard.parentElement).toHaveClass('grid', 'grid-cols-1', 'xl:grid-cols-3', 'gap-5')
+    expect(albumCard.parentElement).not.toHaveClass('md:grid-cols-3')
+
+    // Consolidated single <h2> heading per leaderboard card without redundant secondary headings
+    expect(within(albumCard).getByRole('heading', { level: 2, name: 'Top Albums' })).toBeInTheDocument()
+    expect(within(releaseCard).getByRole('heading', { level: 2, name: 'Top Releases' })).toBeInTheDocument()
+    expect(
+      within(newlyCard).getByRole('heading', { level: 2, name: 'Newly Added Releases' })
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Top 5 Albums')).not.toBeInTheDocument()
+    expect(screen.queryByText('Top 5 Pressings')).not.toBeInTheDocument()
+    expect(screen.queryByText('Last 24 Hours')).not.toBeInTheDocument()
+
+    // Top Albums attribution: Line 1 Combined Artist — Album, Line 2 Submissions · Releases
+    expect(within(albumCard).getByRole('link', { name: 'Radiohead — In Rainbows' })).toBeInTheDocument()
+    expect(within(albumCard).getByText('7 Submissions · 3 Releases')).toBeInTheDocument()
+    expect(
+      within(albumCard).getByRole('link', { name: 'The Smashing Pumpkins — Siamese Dream' })
+    ).toBeInTheDocument()
+    expect(within(albumCard).getByText('4 Submissions · 2 Releases')).toBeInTheDocument()
+
+    // Top Releases attribution: Line 1 Combined Artist — Album, Line 2 Variant · Retailer with fallbacks
+    expect(within(releaseCard).getByRole('link', { name: 'Radiohead — In Rainbows' })).toBeInTheDocument()
+    expect(within(releaseCard).getByText('Limited Edition Yellow · Rough Trade')).toBeInTheDocument()
+    expect(
+      within(releaseCard).getByRole('link', { name: 'The Smashing Pumpkins — Siamese Dream' })
+    ).toBeInTheDocument()
+    expect(within(releaseCard).getByText('Standard Pressing · Wide / Unspecified')).toBeInTheDocument()
+
+    // Newly Added Releases attribution: Line 1 Combined Artist — Album, Line 2 Variant · Retailer + velocity/score
+    expect(
+      within(newlyCard).getByRole('link', { name: 'My Bloody Valentine — Loveless' })
+    ).toBeInTheDocument()
+    expect(within(newlyCard).getByText('Standard Black · Domino')).toBeInTheDocument()
+    expect(within(newlyCard).getByText('+12 pts/hr · 95 pts')).toBeInTheDocument()
+  })
+
+  it('renders uniform 5 rows with window-aware dashed placeholders across all 3 leaderboard cards', async () => {
     renderDashboard()
 
     await waitFor(() => {
@@ -205,14 +305,37 @@ describe('DemandDashboard Page', () => {
     // top_albums has 2 items -> 3 empty slot rows
     const albumEmptySlots = screen.getAllByTestId('empty-slot-album')
     expect(albumEmptySlots).toHaveLength(3)
+    for (const slot of albumEmptySlots) {
+      expect(slot).toHaveTextContent('No additional active items in 24H window — switch to 7D or 1M')
+    }
 
     // top_releases has 2 items -> 3 empty slot rows
     const releaseEmptySlots = screen.getAllByTestId('empty-slot-release')
     expect(releaseEmptySlots).toHaveLength(3)
+    for (const slot of releaseEmptySlots) {
+      expect(slot).toHaveTextContent('No additional active items in 24H window — switch to 7D or 1M')
+    }
 
-    // newly_added has 1 item -> 4 empty slot rows
+    // newly_added has 1 item -> 4 empty slot rows (always 24H)
     const newlyEmptySlots = screen.getAllByTestId('empty-slot-newly-added')
     expect(newlyEmptySlots).toHaveLength(4)
+    for (const slot of newlyEmptySlots) {
+      expect(slot).toHaveTextContent('No additional active items in 24H window — switch to 7D or 1M')
+    }
+
+    // Switch Top Albums to 7D (mock7dDashboard has 1 album -> 4 empty slots showing 7D)
+    const albumCard = screen.getByTestId('card-top-albums')
+    fireEvent.click(within(albumCard).getByRole('button', { name: '7D' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('empty-slot-album')).toHaveLength(4)
+    })
+    for (const slot of screen.getAllByTestId('empty-slot-album')) {
+      expect(slot).toHaveTextContent('No additional active items in 7D window — switch to 7D or 1M')
+    }
+    for (const slot of screen.getAllByTestId('empty-slot-newly-added')) {
+      expect(slot).toHaveTextContent('No additional active items in 24H window — switch to 7D or 1M')
+    }
   })
 
   it('allows independent window switching for Top Albums', async () => {
@@ -231,8 +354,207 @@ describe('DemandDashboard Page', () => {
     }
 
     await waitFor(() => {
-      expect(screen.getByText('OK Computer')).toBeDefined()
+      expect(screen.getByText('Radiohead — OK Computer')).toBeDefined()
     })
+  })
+
+  it('decouples Top Albums and Top Releases window switchers while still syncing external URL changes', async () => {
+    const RouterShell = () => {
+      const location = useLocation()
+      return (
+        <>
+          <div data-testid="current-search">{location.search}</div>
+          <Link to="/?window=24H">External Reset 24H</Link>
+          <DemandDashboard />
+        </>
+      )
+    }
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<RouterShell />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Radiohead — In Rainbows').length).toBeGreaterThanOrEqual(1)
+    })
+
+    const albumCard = screen.getByTestId('card-top-albums')
+    const releaseCard = screen.getByTestId('card-top-releases')
+
+    // 1. Switch Top Albums to 7D -> URL becomes ?window=7D, Top Releases stays 24H
+    fireEvent.click(within(albumCard).getByRole('button', { name: '7D' }))
+
+    await waitFor(() => {
+      expect(within(albumCard).getByText('Radiohead — OK Computer')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('current-search')).toHaveTextContent('?window=7D')
+    expect(within(albumCard).getByRole('button', { name: '7D' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(releaseCard).getByRole('button', { name: '24H' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(releaseCard).getByRole('button', { name: '7D' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(releaseCard).getByRole('link', { name: 'Radiohead — In Rainbows' })).toHaveAttribute(
+      'href',
+      '/releases/rel-1?window=24H'
+    )
+
+    // 2. Switch Top Releases to 1M -> URL becomes ?window=1M, Top Albums stays 7D
+    fireEvent.click(within(releaseCard).getByRole('button', { name: '1M' }))
+
+    await waitFor(() => {
+      expect(within(releaseCard).getByText('Radiohead — Kid A')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('current-search')).toHaveTextContent('?window=1M')
+    expect(within(releaseCard).getByRole('button', { name: '1M' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(releaseCard).getByRole('link', { name: 'Radiohead — Kid A' })).toHaveAttribute(
+      'href',
+      '/releases/rel-1m-1?window=1M'
+    )
+    expect(within(albumCard).getByRole('button', { name: '7D' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(albumCard).getByText('Radiohead — OK Computer')).toBeInTheDocument()
+
+    // 3. External URL navigation resets both Top Albums and Top Releases to the URL window
+    fireEvent.click(screen.getByRole('link', { name: 'External Reset 24H' }))
+
+    await waitFor(() => {
+      expect(within(albumCard).getByText('Radiohead — In Rainbows')).toBeInTheDocument()
+      expect(within(releaseCard).getByText('Radiohead — In Rainbows')).toBeInTheDocument()
+    })
+    expect(within(albumCard).getByRole('button', { name: '24H' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(releaseCard).getByRole('button', { name: '24H' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('pins Newly Added Releases and Live Release Feed to fixed 24H cohort without skeleton flash on leaderboard switch', async () => {
+    let resolve7d!: (value: unknown) => void
+    let resolve1m!: (value: unknown) => void
+    const pending7d = new Promise((resolve) => {
+      resolve7d = resolve
+    })
+    const pending1m = new Promise((resolve) => {
+      resolve1m = resolve
+    })
+
+    const modified7dPayload = {
+      ...mock7dDashboard,
+      newly_added: [
+        {
+          release_id: 'rel-7d-new',
+          album_id: 'alb-7d-new',
+          album_title: '7D Should Not Appear',
+          combined_artist: 'Wrong Cohort',
+          variant: '7D Variant',
+          retailer_name: '7D Store',
+          hype_index: 50,
+          hype_velocity: 3.0,
+          tier: 'moderate',
+          latest_score: 10,
+          monogram_key: 'rel-7d-new',
+          first_seen_at: new Date().toISOString(),
+        },
+      ],
+      live_feed: [
+        {
+          release_id: 'rel-7d-feed',
+          album_id: 'alb-7d-feed',
+          album_title: '7D Feed Should Not Appear',
+          combined_artist: 'Wrong Cohort',
+          variant: '7D Variant',
+          retailer_name: '7D Store',
+          hype_index: 50,
+          hype_velocity: 3.0,
+          tier: 'moderate',
+          score: 10,
+          num_comments: 2,
+          posted_at: new Date().toISOString(),
+          monogram_key: 'rel-7d-feed',
+        },
+      ],
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('window=7D')) {
+          return pending7d
+        }
+        if (url.includes('window=1M')) {
+          return pending1m
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mock24hDashboard),
+        })
+      })
+    )
+
+    renderDashboard()
+
+    const albumCard = screen.getByTestId('card-top-albums')
+    const releaseCard = screen.getByTestId('card-top-releases')
+    const newlyCard = screen.getByTestId('card-newly-added')
+
+    await waitFor(() => {
+      expect(within(newlyCard).getByText('My Bloody Valentine — Loveless')).toBeInTheDocument()
+    })
+    const feedTable = screen.getByRole('table')
+    expect(within(feedTable).getByText('Doolittle')).toBeInTheDocument()
+
+    // Switch Top Albums to 7D while request is pending
+    fireEvent.click(within(albumCard).getByRole('button', { name: '7D' }))
+
+    await waitFor(() => {
+      expect(within(albumCard).getAllByTestId('album-skeleton-row')).toHaveLength(5)
+    })
+    // Newly Added Releases and Live Release Feed must NOT flash skeletons
+    expect(screen.queryAllByTestId('newly-added-skeleton-row')).toHaveLength(0)
+    expect(screen.queryAllByTestId('feed-skeleton-row')).toHaveLength(0)
+    expect(within(newlyCard).getByText('My Bloody Valentine — Loveless')).toBeInTheDocument()
+    expect(within(feedTable).getByText('Doolittle')).toBeInTheDocument()
+
+    // Resolve 7D fetch with different newly_added/live_feed -> 24H cohort remains intact
+    resolve7d({
+      ok: true,
+      json: () => Promise.resolve(modified7dPayload),
+    })
+
+    await waitFor(() => {
+      expect(within(albumCard).getByText('Radiohead — OK Computer')).toBeInTheDocument()
+    })
+    expect(within(newlyCard).getByText('My Bloody Valentine — Loveless')).toBeInTheDocument()
+    expect(screen.queryByText(/7D Should Not Appear/i)).not.toBeInTheDocument()
+    expect(within(feedTable).getByText('Doolittle')).toBeInTheDocument()
+    expect(screen.queryByText(/7D Feed Should Not Appear/i)).not.toBeInTheDocument()
+
+    // Feed detail links stay pinned to ?window=24H even when albumWindow is 7D
+    expect(within(feedTable).getByRole('link', { name: 'In Rainbows' })).toHaveAttribute(
+      'href',
+      '/albums/alb-1?window=24H'
+    )
+    const viewLinks = within(feedTable).getAllByRole('link', { name: /view/i })
+    expect(viewLinks[0]).toHaveAttribute('href', '/releases/rel-1?window=24H')
+
+    // Switch Top Releases to 1M while pending -> only Top Releases shows skeletons
+    fireEvent.click(within(releaseCard).getByRole('button', { name: '1M' }))
+
+    await waitFor(() => {
+      expect(within(releaseCard).getAllByTestId('release-skeleton-row')).toHaveLength(5)
+    })
+    expect(screen.queryAllByTestId('newly-added-skeleton-row')).toHaveLength(0)
+    expect(screen.queryAllByTestId('feed-skeleton-row')).toHaveLength(0)
+
+    resolve1m({
+      ok: true,
+      json: () => Promise.resolve(mock1mDashboard),
+    })
+
+    await waitFor(() => {
+      expect(within(releaseCard).getByText('Radiohead — Kid A')).toBeInTheDocument()
+    })
+    expect(within(newlyCard).getByText('My Bloody Valentine — Loveless')).toBeInTheDocument()
   })
 
   it('renders fallbacks for null variant and retailer in Live Release Feed', async () => {
@@ -261,20 +583,161 @@ describe('DemandDashboard Page', () => {
     expect(within(feedTable).queryByText('In Rainbows')).toBeNull()
   })
 
-  it('filters Live Release Feed by tier pill', async () => {
+  it('filters Live Release Feed by tier range pills inside labeled group with aria-pressed and accessible styling', async () => {
     renderDashboard()
 
     await waitFor(() => {
       expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
     })
 
-    // Click 'Low' tier pill
-    const lowPill = screen.getByRole('button', { name: /^low$/i })
+    const tierGroup = screen.getByRole('group', { name: 'Filter feed by Hype Index tier' })
+    expect(tierGroup).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-1', 'bg-canvas', 'p-1', 'rounded-full', 'border-strong')
+
+    const allPill = within(tierGroup).getByRole('button', { name: 'All' })
+    const highPill = within(tierGroup).getByRole('button', { name: 'High 75–100' })
+    const modPill = within(tierGroup).getByRole('button', { name: 'Mod 40–74' })
+    const lowPill = within(tierGroup).getByRole('button', { name: 'Low 0–39' })
+
+    expect(allPill).toHaveAttribute('type', 'button')
+    expect(allPill).toHaveAttribute('aria-pressed', 'true')
+    expect(allPill).toHaveClass(
+      'min-h-[26px]',
+      'border-strong',
+      'bg-ink-primary',
+      'text-white',
+      'font-bold',
+      'shadow-brutal-sm',
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-accent-primary'
+    )
+
+    for (const inactive of [highPill, modPill, lowPill]) {
+      expect(inactive).toHaveAttribute('type', 'button')
+      expect(inactive).toHaveAttribute('aria-pressed', 'false')
+      expect(inactive).toHaveClass(
+        'min-h-[26px]',
+        'border-strong',
+        'bg-card',
+        'text-ink-primary',
+        'hover:bg-row-hover',
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-2',
+        'focus-visible:outline-accent-primary'
+      )
+    }
+
+    // Click 'Low 0–39' tier pill
     fireEvent.click(lowPill)
+
+    expect(lowPill).toHaveAttribute('aria-pressed', 'true')
+    expect(allPill).toHaveAttribute('aria-pressed', 'false')
 
     const feedTable = screen.getByRole('table')
     expect(within(feedTable).getByText('Doolittle')).toBeDefined()
     expect(within(feedTable).queryByText('In Rainbows')).toBeNull()
+
+    // Click 'Mod 40–74' tier pill
+    fireEvent.click(modPill)
+    expect(modPill).toHaveAttribute('aria-pressed', 'true')
+    expect(lowPill).toHaveAttribute('aria-pressed', 'false')
+    expect(within(feedTable).getByText('Siamese Dream')).toBeInTheDocument()
+    expect(within(feedTable).queryByText('Doolittle')).not.toBeInTheDocument()
+
+    // Click 'High 75–100' tier pill
+    fireEvent.click(highPill)
+    expect(highPill).toHaveAttribute('aria-pressed', 'true')
+    expect(within(feedTable).getByText('In Rainbows')).toBeInTheDocument()
+    expect(within(feedTable).queryByText('Siamese Dream')).not.toBeInTheDocument()
+  })
+
+  it('derives distinct non-null Retailer options and filters Live Release Feed by retailer', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              ...mock24hDashboard,
+              live_feed: [
+                ...mock24hDashboard.live_feed,
+                {
+                  release_id: 'rel-4',
+                  album_id: 'alb-5',
+                  album_title: 'Blank Name Pressing',
+                  combined_artist: 'Artist A',
+                  variant: 'Clear Vinyl',
+                  retailer_name: '',
+                  hype_index: 50,
+                  hype_velocity: 3.1,
+                  tier: 'moderate',
+                  score: 40,
+                  num_comments: 6,
+                  posted_at: new Date(Date.now() - 1800000).toISOString(),
+                  monogram_key: 'rel-4',
+                },
+                {
+                  release_id: 'rel-5',
+                  album_id: 'alb-6',
+                  album_title: 'Unspecified Pressing',
+                  combined_artist: 'Artist B',
+                  variant: 'Black Vinyl',
+                  retailer_name: 'Wide / Unspecified',
+                  hype_index: 44,
+                  hype_velocity: 2.4,
+                  tier: 'moderate',
+                  score: 30,
+                  num_comments: 5,
+                  posted_at: new Date(Date.now() - 2400000).toISOString(),
+                  monogram_key: 'rel-5',
+                },
+                {
+                  release_id: 'rel-6',
+                  album_id: 'alb-7',
+                  album_title: 'Blood Pressing',
+                  combined_artist: 'Artist C',
+                  variant: 'Zoetrope',
+                  retailer_name: 'Blood Records',
+                  hype_index: 70,
+                  hype_velocity: 6.5,
+                  tier: 'moderate',
+                  score: 90,
+                  num_comments: 14,
+                  posted_at: new Date(Date.now() - 3000000).toISOString(),
+                  monogram_key: 'rel-6',
+                },
+              ],
+            }),
+        })
+      )
+    )
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
+    })
+
+    const retailerSelect = screen.getByRole('combobox', { name: 'Filter feed by retailer' })
+    expect(retailerSelect).toHaveAttribute('data-testid', 'feed-retailer-select')
+    expect(retailerSelect).toHaveValue('all')
+
+    const optionLabels = within(retailerSelect)
+      .getAllByRole('option')
+      .map((opt) => opt.textContent)
+    expect(optionLabels).toEqual(['All Retailers', '4AD', 'Blood Records', 'Rough Trade'])
+
+    fireEvent.change(retailerSelect, { target: { value: 'Rough Trade' } })
+
+    const feedTable = screen.getByRole('table')
+    expect(within(feedTable).getByText('In Rainbows')).toBeInTheDocument()
+    expect(within(feedTable).queryByText('Siamese Dream')).not.toBeInTheDocument()
+    expect(within(feedTable).queryByText('Doolittle')).not.toBeInTheDocument()
+    expect(within(feedTable).queryByText('Blood Pressing')).not.toBeInTheDocument()
+
+    fireEvent.change(retailerSelect, { target: { value: 'all' } })
+    expect(within(feedTable).getAllByTestId('feed-table-row')).toHaveLength(6)
   })
 
   it('sorts Live Release Feed by Hype Velocity', async () => {
@@ -293,16 +756,105 @@ describe('DemandDashboard Page', () => {
     expect(rows[0].textContent).toContain('In Rainbows')
   })
 
+  it('sorts Live Release Feed by Upvotes descending with Hype Index tie-breaker and by Recency across ISO offsets', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              ...mock24hDashboard,
+              live_feed: [
+                {
+                  release_id: 'rel-alpha',
+                  album_id: 'alb-alpha',
+                  album_title: 'Alpha Album',
+                  combined_artist: 'Artist Alpha',
+                  variant: 'Black',
+                  retailer_name: 'Rough Trade',
+                  hype_index: 60,
+                  hype_velocity: 4.0,
+                  tier: 'moderate',
+                  score: 120,
+                  num_comments: 10,
+                  posted_at: '2026-11-14T10:00:00Z',
+                  monogram_key: 'rel-alpha',
+                },
+                {
+                  release_id: 'rel-beta',
+                  album_id: 'alb-beta',
+                  album_title: 'Beta Album',
+                  combined_artist: 'Artist Beta',
+                  variant: 'Mint',
+                  retailer_name: '4AD',
+                  hype_index: 88,
+                  hype_velocity: 9.0,
+                  tier: 'high',
+                  score: 120,
+                  num_comments: 25,
+                  posted_at: '2026-11-14T11:30:00+02:00',
+                  monogram_key: 'rel-beta',
+                },
+                {
+                  release_id: 'rel-gamma',
+                  album_id: 'alb-gamma',
+                  album_title: 'Gamma Album',
+                  combined_artist: 'Artist Gamma',
+                  variant: 'Amber',
+                  retailer_name: 'Domino',
+                  hype_index: 45,
+                  hype_velocity: 2.0,
+                  tier: 'moderate',
+                  score: 210,
+                  num_comments: 30,
+                  posted_at: '2026-11-14T11:00:00Z',
+                  monogram_key: 'rel-gamma',
+                },
+              ],
+            }),
+        })
+      )
+    )
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByText('Alpha Album')).toBeInTheDocument()
+    })
+
+    const sortSelect = screen.getByRole('combobox', { name: 'Sort live release feed' })
+    expect(within(sortSelect).getByRole('option', { name: 'Upvotes ↓' })).toHaveValue('upvotes')
+
+    fireEvent.change(sortSelect, { target: { value: 'upvotes' } })
+
+    let rows = screen.getAllByTestId('feed-table-row')
+    expect(rows.map((r) => within(r).getByText(/Album$/).textContent)).toEqual([
+      'Gamma Album',
+      'Beta Album',
+      'Alpha Album',
+    ])
+
+    fireEvent.change(sortSelect, { target: { value: 'recency' } })
+
+    rows = screen.getAllByTestId('feed-table-row')
+    expect(rows.map((r) => within(r).getByText(/Album$/).textContent)).toEqual([
+      'Gamma Album',
+      'Alpha Album',
+      'Beta Album',
+    ])
+  })
+
   it('navigates to album and release detail preserving window parameter', async () => {
     renderDashboard(['/?window=7D'])
 
     await waitFor(() => {
-      expect(screen.getByText('OK Computer')).toBeInTheDocument()
+      expect(screen.getByText('Radiohead — OK Computer')).toBeInTheDocument()
     })
 
     // In Top Albums card, check link href
     const albumCard = screen.getByTestId('card-top-albums')
-    const albumLink = within(albumCard).getByRole('link', { name: /ok computer/i })
+    const albumLink = within(albumCard).getByRole('link', { name: /radiohead — ok computer/i })
     expect(albumLink).toHaveAttribute('href', '/albums/alb-7d-1?window=7D')
 
     // Click album link
@@ -338,19 +890,344 @@ describe('DemandDashboard Page', () => {
     })
   })
 
-  it('renders Coral Alert banner and retry button on fetch failure', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockRejectedValue(new Error('Network failure'))
-    )
-
+  it('shows active Retailer, tier, and query chips in 0 MATCHING RECORDS state and resets all controls including sort order', async () => {
     renderDashboard()
 
     await waitFor(() => {
-      expect(screen.getByTestId('dashboard-error-banner')).toBeInTheDocument()
+      expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
     })
 
+    const filterInput = screen.getByPlaceholderText(/filter feed/i)
+    const retailerSelect = screen.getByTestId('feed-retailer-select')
+    const sortSelect = screen.getByTestId('feed-sort-select')
+    const lowPill = screen.getByRole('button', { name: 'Low 0–39' })
+
+    fireEvent.change(filterInput, { target: { value: 'Radiohead' } })
+    fireEvent.change(retailerSelect, { target: { value: 'Rough Trade' } })
+    fireEvent.click(lowPill)
+    fireEvent.change(sortSelect, { target: { value: 'upvotes' } })
+
+    const emptyState = await screen.findByTestId('feed-empty-state')
+    expect(within(emptyState).getByText('0 MATCHING RECORDS')).toBeInTheDocument()
+    expect(within(emptyState).getByText('Query: "Radiohead"')).toBeInTheDocument()
+    expect(within(emptyState).getByText('Tier: LOW')).toBeInTheDocument()
+    expect(within(emptyState).getByText('Retailer: Rough Trade')).toBeInTheDocument()
+
+    const resetBtn = within(emptyState).getByTestId('reset-filters-btn')
+    expect(resetBtn).toHaveAttribute('type', 'button')
+    expect(resetBtn).toHaveClass(
+      'bg-accent-primary',
+      'border-strong',
+      'shadow-brutal-sm',
+      'hover:translate-x-[-1px]',
+      'hover:translate-y-[-1px]',
+      'hover:shadow-brutal-md',
+      'active:translate-x-[2px]',
+      'active:translate-y-[2px]',
+      'active:shadow-none'
+    )
+    fireEvent.click(resetBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('feed-empty-state')).not.toBeInTheDocument()
+    })
+    expect(filterInput).toHaveValue('')
+    expect(retailerSelect).toHaveValue('all')
+    expect(sortSelect).toHaveValue('hype_index')
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getAllByTestId('feed-table-row')).toHaveLength(3)
+  })
+
+  it('renders Coral Alert banner with role="alert" and retries failed queries including fixed 24H cohort', async () => {
+    let fail24h = true
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('window=24H') && fail24h) {
+          return Promise.reject(new Error('24H Network failure'))
+        }
+        if (url.includes('window=7D')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mock7dDashboard),
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mock24hDashboard),
+        })
+      })
+    )
+
+    renderDashboard(['/?window=7D'])
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+
+    const banner = screen.getByTestId('dashboard-error-banner')
+    expect(banner).toHaveAttribute('role', 'alert')
+    expect(banner).toHaveClass('bg-alert-coral', 'border-strong')
     expect(screen.getByText(/Failed to load demand intelligence/i)).toBeInTheDocument()
-    expect(screen.getByTestId('dashboard-retry-btn')).toBeInTheDocument()
+
+    const retryBtn = screen.getByTestId('dashboard-retry-btn')
+    expect(retryBtn).toHaveClass(
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-accent-primary'
+    )
+
+    fail24h = false
+    fireEvent.click(retryBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.getByText('My Bloody Valentine — Loveless')).toBeInTheDocument()
+    })
+  })
+
+  it('styles leaderboard Hype Window pills for WCAG target size, inactive contrast, and focus-visible outlines', async () => {
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Radiohead — In Rainbows').length).toBeGreaterThanOrEqual(1)
+    })
+
+    for (const cardTestId of ['card-top-albums', 'card-top-releases']) {
+      const card = screen.getByTestId(cardTestId)
+      const btn24h = within(card).getByRole('button', { name: '24H' })
+      const btn7d = within(card).getByRole('button', { name: '7D' })
+      const btn1m = within(card).getByRole('button', { name: '1M' })
+
+      expect(btn24h.parentElement).toHaveClass('gap-1', 'p-1', 'bg-canvas', 'rounded-full', 'border-strong')
+      expect(btn24h).toHaveAttribute('type', 'button')
+      expect(btn24h).toHaveAttribute('aria-pressed', 'true')
+      expect(btn24h).toHaveClass(
+        'min-h-[26px]',
+        'min-w-[32px]',
+        'border-strong',
+        'bg-ink-primary',
+        'text-white',
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-2',
+        'focus-visible:outline-accent-primary'
+      )
+
+      for (const inactiveBtn of [btn7d, btn1m]) {
+        expect(inactiveBtn).toHaveAttribute('type', 'button')
+        expect(inactiveBtn).toHaveAttribute('aria-pressed', 'false')
+        expect(inactiveBtn).toHaveClass(
+          'min-h-[26px]',
+          'min-w-[32px]',
+          'border-strong',
+          'bg-card',
+          'text-ink-primary',
+          'hover:bg-row-hover',
+          'focus-visible:outline-2',
+          'focus-visible:outline-offset-2',
+          'focus-visible:outline-accent-primary'
+        )
+      }
+    }
+
+    // Leaderboard links expose visible focus-visible outlines
+    const albumCard = screen.getByTestId('card-top-albums')
+    const releaseCard = screen.getByTestId('card-top-releases')
+    const newlyCard = screen.getByTestId('card-newly-added')
+    for (const link of [
+      within(albumCard).getByRole('link', { name: 'Radiohead — In Rainbows' }),
+      within(releaseCard).getByRole('link', { name: 'Radiohead — In Rainbows' }),
+      within(newlyCard).getByRole('link', { name: 'My Bloody Valentine — Loveless' }),
+    ]) {
+      expect(link).toHaveClass(
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-2',
+        'focus-visible:outline-accent-primary'
+      )
+    }
+  })
+
+  it('handles singular counts, null fallbacks in Newly Added Releases, and invalid URL window parameter', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              window: '24H',
+              top_albums: [
+                {
+                  album_id: 'alb-single',
+                  album_title: 'Moon Safari',
+                  combined_artist: 'Air',
+                  hype_index: 45,
+                  hype_velocity: 2.0,
+                  tier: 'moderate',
+                  release_count: 1,
+                  submission_count: 1,
+                  monogram_key: 'alb-single',
+                },
+              ],
+              top_releases: [],
+              newly_added: [
+                {
+                  release_id: 'rel-null-new',
+                  album_id: 'alb-single',
+                  album_title: 'Moon Safari',
+                  combined_artist: 'Air',
+                  variant: null,
+                  retailer_name: null,
+                  hype_index: 45,
+                  hype_velocity: 2.0,
+                  tier: 'moderate',
+                  latest_score: 12,
+                  monogram_key: 'rel-null-new',
+                  first_seen_at: new Date().toISOString(),
+                },
+              ],
+              live_feed: [],
+            }),
+        })
+      )
+    )
+
+    renderDashboard(['/?window=bogus'])
+
+    const albumCard = screen.getByTestId('card-top-albums')
+    const releaseCard = screen.getByTestId('card-top-releases')
+    const newlyCard = screen.getByTestId('card-newly-added')
+
+    await waitFor(() => {
+      expect(within(albumCard).getByText('1 Submission · 1 Release')).toBeInTheDocument()
+    })
+
+    expect(within(albumCard).getByRole('button', { name: '24H' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(releaseCard).getByRole('button', { name: '24H' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(newlyCard).getByText('Standard Pressing · Wide / Unspecified')).toBeInTheDocument()
+    expect(within(newlyCard).getByText('+2 pts/hr · 12 pts')).toBeInTheDocument()
+  })
+
+  it('enforces accessible Live Release Feed controls, 24x24px clear button, scope="col" headers, ?window=24H links, and semantic tokens', async () => {
+    renderDashboard(['/?window=7D'])
+
+    await waitFor(() => {
+      expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
+    })
+
+    const feedInput = screen.getByRole('textbox', { name: 'Filter live release feed' })
+    expect(feedInput.parentElement).toHaveClass('relative', 'flex', 'items-center', 'w-full', 'sm:w-auto', 'sm:min-w-[220px]')
+    expect(feedInput).toHaveClass(
+      'bg-row-hover',
+      'border-strong',
+      'text-ink-primary',
+      'placeholder:text-ink-secondary',
+      'focus:bg-card',
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-accent-primary'
+    )
+
+    // Clear button appears when query is entered, meets >= 24x24px sizing (w-6 h-6), and clears query
+    expect(screen.queryByRole('button', { name: 'Clear filter' })).not.toBeInTheDocument()
+    fireEvent.change(feedInput, { target: { value: 'Doolittle' } })
+    const clearBtn = screen.getByRole('button', { name: 'Clear filter' })
+    expect(clearBtn).toHaveAttribute('type', 'button')
+    expect(clearBtn).toHaveClass(
+      'w-6',
+      'h-6',
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-accent-primary'
+    )
+    fireEvent.click(clearBtn)
+    expect(feedInput).toHaveValue('')
+
+    const retailerSelect = screen.getByRole('combobox', { name: 'Filter feed by retailer' })
+    const sortSelect = screen.getByRole('combobox', { name: 'Sort live release feed' })
+    for (const select of [retailerSelect, sortSelect]) {
+      expect(select).toHaveClass(
+        'bg-card',
+        'border-strong',
+        'text-ink-primary',
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-2',
+        'focus-visible:outline-accent-primary'
+      )
+    }
+
+    const feedTable = screen.getByRole('table')
+    const columnHeaders = within(feedTable).getAllByRole('columnheader')
+    expect(columnHeaders).toHaveLength(7)
+    for (const header of columnHeaders) {
+      expect(header).toHaveAttribute('scope', 'col')
+    }
+
+    // All Album Detail and Release Detail links inside Live Release Feed preserve ?window=24H and focus-visible ring
+    const rows = within(feedTable).getAllByTestId('feed-table-row')
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(row).toHaveClass('hover:bg-row-hover')
+      const links = within(row).getAllByRole('link')
+      expect(links).toHaveLength(2)
+      for (const link of links) {
+        expect(link.getAttribute('href')).toMatch(/\?window=24H$/)
+        expect(link).toHaveClass(
+          'focus-visible:outline-2',
+          'focus-visible:outline-offset-2',
+          'focus-visible:outline-accent-primary'
+        )
+      }
+    }
+  })
+
+  it('uses bg-accent-sand for feed skeleton blocks and .border-subtle on solid leaderboard cards while preserving dashed empty slots', async () => {
+    let resolveFetch!: (value: Response) => void
+    const pendingFetch = new Promise<Response>((resolve) => {
+      resolveFetch = resolve
+    })
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(pendingFetch))
+
+    renderDashboard()
+
+    const feedSkeletonRows = await screen.findAllByTestId('feed-skeleton-row')
+    expect(feedSkeletonRows).toHaveLength(5)
+    for (const row of feedSkeletonRows) {
+      const pulseBlock = row.querySelector('.animate-pulse')
+      expect(pulseBlock).toHaveClass('bg-accent-sand', 'border-strong')
+      expect(pulseBlock).not.toHaveClass('bg-border-hairline')
+    }
+
+    resolveFetch({
+      ok: true,
+      json: () => Promise.resolve(mock24hDashboard),
+    } as Response)
+
+    const albumCard = screen.getByTestId('card-top-albums')
+    const releaseCard = screen.getByTestId('card-top-releases')
+    const newlyCard = screen.getByTestId('card-newly-added')
+
+    await waitFor(() => {
+      expect(within(newlyCard).getByText('My Bloody Valentine — Loveless')).toBeInTheDocument()
+    })
+
+    for (const [card, linkText] of [
+      [albumCard, 'Radiohead — In Rainbows'],
+      [releaseCard, 'Radiohead — In Rainbows'],
+      [newlyCard, 'My Bloody Valentine — Loveless'],
+    ] as const) {
+      const row = within(card).getByRole('link', { name: linkText }).closest('div.flex.items-center.justify-between')
+      expect(row).toHaveClass('border-subtle')
+      expect(row).not.toHaveClass('border-border-hairline')
+    }
+
+    const newlyTimestamp = within(newlyCard).getByText(/just now|ago|0m/i)
+    expect(newlyTimestamp).toHaveClass('border-subtle')
+    expect(newlyTimestamp).not.toHaveClass('border-border-hairline')
+
+    for (const slot of screen.getAllByTestId('empty-slot-album')) {
+      expect(slot).toHaveClass('border', 'border-dashed', 'border-border-hairline')
+      expect(slot).not.toHaveClass('border-subtle')
+    }
   })
 })
