@@ -237,4 +237,65 @@ describe('TopBar Global Search', () => {
       expect(screen.queryByTestId('search-dropdown')).not.toBeInTheDocument()
     })
   })
+
+  it('wires WAI-ARIA combobox, listbox, option ids, and aria-activedescendant', async () => {
+    renderTopBar()
+    const input = screen.getByRole('combobox', { name: 'Global catalog search' })
+    expect(input).toHaveAttribute('aria-autocomplete', 'list')
+    expect(input).toHaveAttribute('aria-controls', 'global-search-listbox')
+    expect(input).toHaveAttribute('aria-expanded', 'false')
+    expect(input).not.toHaveAttribute('aria-activedescendant')
+
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'smashing' } })
+
+    const listbox = await screen.findByRole('listbox', { name: 'Search suggestions' })
+    expect(listbox).toHaveAttribute('id', 'global-search-listbox')
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+
+    const options = screen.getAllByRole('option')
+    expect(options).toHaveLength(3)
+    expect(options[0]).toHaveAttribute('id', 'global-search-option-album-abc1234567890def')
+    expect(options[1]).toHaveAttribute('id', 'global-search-option-release-rel-1111-2222')
+    expect(options[2]).toHaveAttribute('id', 'global-search-option-artist-art-3333-4444')
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(input).toHaveAttribute(
+      'aria-activedescendant',
+      'global-search-option-album-abc1234567890def'
+    )
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(input).toHaveAttribute(
+      'aria-activedescendant',
+      'global-search-option-release-rel-1111-2222'
+    )
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input).toHaveAttribute('aria-expanded', 'false')
+    expect(input).not.toHaveAttribute('aria-activedescendant')
+  })
+
+  it('uses WCAG AA placeholder contrast, focus-visible outlines, and accessible clear button target size', () => {
+    renderTopBar('/directory?q=taylor')
+
+    const input = screen.getByTestId('global-search-input')
+    expect(input).toHaveClass(
+      'placeholder:text-ink-secondary',
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-accent-primary'
+    )
+    expect(input).not.toHaveClass('focus:outline-none')
+
+    const clearButton = screen.getByRole('button', { name: 'Clear search' })
+    expect(clearButton).toHaveAttribute('data-testid', 'search-clear-button')
+    expect(clearButton).toHaveClass(
+      'min-h-[26px]',
+      'min-w-[26px]',
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-accent-primary'
+    )
+  })
 })
