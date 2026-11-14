@@ -583,20 +583,161 @@ describe('DemandDashboard Page', () => {
     expect(within(feedTable).queryByText('In Rainbows')).toBeNull()
   })
 
-  it('filters Live Release Feed by tier pill', async () => {
+  it('filters Live Release Feed by tier range pills inside labeled group with aria-pressed and accessible styling', async () => {
     renderDashboard()
 
     await waitFor(() => {
       expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
     })
 
-    // Click 'Low' tier pill
-    const lowPill = screen.getByRole('button', { name: /^low$/i })
+    const tierGroup = screen.getByRole('group', { name: 'Filter feed by Hype Index tier' })
+    expect(tierGroup).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-1', 'bg-canvas', 'p-1', 'rounded-full', 'border-strong')
+
+    const allPill = within(tierGroup).getByRole('button', { name: 'All' })
+    const highPill = within(tierGroup).getByRole('button', { name: 'High 75–100' })
+    const modPill = within(tierGroup).getByRole('button', { name: 'Mod 40–74' })
+    const lowPill = within(tierGroup).getByRole('button', { name: 'Low 0–39' })
+
+    expect(allPill).toHaveAttribute('type', 'button')
+    expect(allPill).toHaveAttribute('aria-pressed', 'true')
+    expect(allPill).toHaveClass(
+      'min-h-[26px]',
+      'border-strong',
+      'bg-ink-primary',
+      'text-white',
+      'font-bold',
+      'shadow-brutal-sm',
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-accent-primary'
+    )
+
+    for (const inactive of [highPill, modPill, lowPill]) {
+      expect(inactive).toHaveAttribute('type', 'button')
+      expect(inactive).toHaveAttribute('aria-pressed', 'false')
+      expect(inactive).toHaveClass(
+        'min-h-[26px]',
+        'border-strong',
+        'bg-card',
+        'text-ink-primary',
+        'hover:bg-row-hover',
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-2',
+        'focus-visible:outline-accent-primary'
+      )
+    }
+
+    // Click 'Low 0–39' tier pill
     fireEvent.click(lowPill)
+
+    expect(lowPill).toHaveAttribute('aria-pressed', 'true')
+    expect(allPill).toHaveAttribute('aria-pressed', 'false')
 
     const feedTable = screen.getByRole('table')
     expect(within(feedTable).getByText('Doolittle')).toBeDefined()
     expect(within(feedTable).queryByText('In Rainbows')).toBeNull()
+
+    // Click 'Mod 40–74' tier pill
+    fireEvent.click(modPill)
+    expect(modPill).toHaveAttribute('aria-pressed', 'true')
+    expect(lowPill).toHaveAttribute('aria-pressed', 'false')
+    expect(within(feedTable).getByText('Siamese Dream')).toBeInTheDocument()
+    expect(within(feedTable).queryByText('Doolittle')).not.toBeInTheDocument()
+
+    // Click 'High 75–100' tier pill
+    fireEvent.click(highPill)
+    expect(highPill).toHaveAttribute('aria-pressed', 'true')
+    expect(within(feedTable).getByText('In Rainbows')).toBeInTheDocument()
+    expect(within(feedTable).queryByText('Siamese Dream')).not.toBeInTheDocument()
+  })
+
+  it('derives distinct non-null Retailer options and filters Live Release Feed by retailer', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              ...mock24hDashboard,
+              live_feed: [
+                ...mock24hDashboard.live_feed,
+                {
+                  release_id: 'rel-4',
+                  album_id: 'alb-5',
+                  album_title: 'Blank Name Pressing',
+                  combined_artist: 'Artist A',
+                  variant: 'Clear Vinyl',
+                  retailer_name: '',
+                  hype_index: 50,
+                  hype_velocity: 3.1,
+                  tier: 'moderate',
+                  score: 40,
+                  num_comments: 6,
+                  posted_at: new Date(Date.now() - 1800000).toISOString(),
+                  monogram_key: 'rel-4',
+                },
+                {
+                  release_id: 'rel-5',
+                  album_id: 'alb-6',
+                  album_title: 'Unspecified Pressing',
+                  combined_artist: 'Artist B',
+                  variant: 'Black Vinyl',
+                  retailer_name: 'Wide / Unspecified',
+                  hype_index: 44,
+                  hype_velocity: 2.4,
+                  tier: 'moderate',
+                  score: 30,
+                  num_comments: 5,
+                  posted_at: new Date(Date.now() - 2400000).toISOString(),
+                  monogram_key: 'rel-5',
+                },
+                {
+                  release_id: 'rel-6',
+                  album_id: 'alb-7',
+                  album_title: 'Blood Pressing',
+                  combined_artist: 'Artist C',
+                  variant: 'Zoetrope',
+                  retailer_name: 'Blood Records',
+                  hype_index: 70,
+                  hype_velocity: 6.5,
+                  tier: 'moderate',
+                  score: 90,
+                  num_comments: 14,
+                  posted_at: new Date(Date.now() - 3000000).toISOString(),
+                  monogram_key: 'rel-6',
+                },
+              ],
+            }),
+        })
+      )
+    )
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
+    })
+
+    const retailerSelect = screen.getByRole('combobox', { name: 'Filter feed by retailer' })
+    expect(retailerSelect).toHaveAttribute('data-testid', 'feed-retailer-select')
+    expect(retailerSelect).toHaveValue('all')
+
+    const optionLabels = within(retailerSelect)
+      .getAllByRole('option')
+      .map((opt) => opt.textContent)
+    expect(optionLabels).toEqual(['All Retailers', '4AD', 'Blood Records', 'Rough Trade'])
+
+    fireEvent.change(retailerSelect, { target: { value: 'Rough Trade' } })
+
+    const feedTable = screen.getByRole('table')
+    expect(within(feedTable).getByText('In Rainbows')).toBeInTheDocument()
+    expect(within(feedTable).queryByText('Siamese Dream')).not.toBeInTheDocument()
+    expect(within(feedTable).queryByText('Doolittle')).not.toBeInTheDocument()
+    expect(within(feedTable).queryByText('Blood Pressing')).not.toBeInTheDocument()
+
+    fireEvent.change(retailerSelect, { target: { value: 'all' } })
+    expect(within(feedTable).getAllByTestId('feed-table-row')).toHaveLength(6)
   })
 
   it('sorts Live Release Feed by Hype Velocity', async () => {
@@ -613,6 +754,95 @@ describe('DemandDashboard Page', () => {
     expect(rows.length).toBe(3)
     // First row should be In Rainbows (+14.5 pts/hr)
     expect(rows[0].textContent).toContain('In Rainbows')
+  })
+
+  it('sorts Live Release Feed by Upvotes descending with Hype Index tie-breaker and by Recency across ISO offsets', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              ...mock24hDashboard,
+              live_feed: [
+                {
+                  release_id: 'rel-alpha',
+                  album_id: 'alb-alpha',
+                  album_title: 'Alpha Album',
+                  combined_artist: 'Artist Alpha',
+                  variant: 'Black',
+                  retailer_name: 'Rough Trade',
+                  hype_index: 60,
+                  hype_velocity: 4.0,
+                  tier: 'moderate',
+                  score: 120,
+                  num_comments: 10,
+                  posted_at: '2026-11-14T10:00:00Z',
+                  monogram_key: 'rel-alpha',
+                },
+                {
+                  release_id: 'rel-beta',
+                  album_id: 'alb-beta',
+                  album_title: 'Beta Album',
+                  combined_artist: 'Artist Beta',
+                  variant: 'Mint',
+                  retailer_name: '4AD',
+                  hype_index: 88,
+                  hype_velocity: 9.0,
+                  tier: 'high',
+                  score: 120,
+                  num_comments: 25,
+                  posted_at: '2026-11-14T11:30:00+02:00',
+                  monogram_key: 'rel-beta',
+                },
+                {
+                  release_id: 'rel-gamma',
+                  album_id: 'alb-gamma',
+                  album_title: 'Gamma Album',
+                  combined_artist: 'Artist Gamma',
+                  variant: 'Amber',
+                  retailer_name: 'Domino',
+                  hype_index: 45,
+                  hype_velocity: 2.0,
+                  tier: 'moderate',
+                  score: 210,
+                  num_comments: 30,
+                  posted_at: '2026-11-14T11:00:00Z',
+                  monogram_key: 'rel-gamma',
+                },
+              ],
+            }),
+        })
+      )
+    )
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByText('Alpha Album')).toBeInTheDocument()
+    })
+
+    const sortSelect = screen.getByRole('combobox', { name: 'Sort live release feed' })
+    expect(within(sortSelect).getByRole('option', { name: 'Upvotes ↓' })).toHaveValue('upvotes')
+
+    fireEvent.change(sortSelect, { target: { value: 'upvotes' } })
+
+    let rows = screen.getAllByTestId('feed-table-row')
+    expect(rows.map((r) => within(r).getByText(/Album$/).textContent)).toEqual([
+      'Gamma Album',
+      'Beta Album',
+      'Alpha Album',
+    ])
+
+    fireEvent.change(sortSelect, { target: { value: 'recency' } })
+
+    rows = screen.getAllByTestId('feed-table-row')
+    expect(rows.map((r) => within(r).getByText(/Album$/).textContent)).toEqual([
+      'Gamma Album',
+      'Alpha Album',
+      'Beta Album',
+    ])
   })
 
   it('navigates to album and release detail preserving window parameter', async () => {
@@ -658,6 +888,43 @@ describe('DemandDashboard Page', () => {
       expect(screen.queryByTestId('feed-empty-state')).not.toBeInTheDocument()
       expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
     })
+  })
+
+  it('shows active Retailer, tier, and query chips in 0 MATCHING RECORDS state and resets all controls including sort order', async () => {
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
+    })
+
+    const filterInput = screen.getByPlaceholderText(/filter feed/i)
+    const retailerSelect = screen.getByTestId('feed-retailer-select')
+    const sortSelect = screen.getByTestId('feed-sort-select')
+    const lowPill = screen.getByRole('button', { name: 'Low 0–39' })
+
+    fireEvent.change(filterInput, { target: { value: 'Radiohead' } })
+    fireEvent.change(retailerSelect, { target: { value: 'Rough Trade' } })
+    fireEvent.click(lowPill)
+    fireEvent.change(sortSelect, { target: { value: 'upvotes' } })
+
+    const emptyState = await screen.findByTestId('feed-empty-state')
+    expect(within(emptyState).getByText('0 MATCHING RECORDS')).toBeInTheDocument()
+    expect(within(emptyState).getByText('Query: "Radiohead"')).toBeInTheDocument()
+    expect(within(emptyState).getByText('Tier: LOW')).toBeInTheDocument()
+    expect(within(emptyState).getByText('Retailer: Rough Trade')).toBeInTheDocument()
+
+    const resetBtn = within(emptyState).getByTestId('reset-filters-btn')
+    expect(resetBtn).toHaveAttribute('type', 'button')
+    fireEvent.click(resetBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('feed-empty-state')).not.toBeInTheDocument()
+    })
+    expect(filterInput).toHaveValue('')
+    expect(retailerSelect).toHaveValue('all')
+    expect(sortSelect).toHaveValue('hype_index')
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getAllByTestId('feed-table-row')).toHaveLength(3)
   })
 
   it('renders Coral Alert banner with role="alert" and retries failed queries including fixed 24H cohort', async () => {
@@ -828,5 +1095,78 @@ describe('DemandDashboard Page', () => {
     expect(within(releaseCard).getByRole('button', { name: '24H' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(newlyCard).getByText('Standard Pressing · Wide / Unspecified')).toBeInTheDocument()
     expect(within(newlyCard).getByText('+2 pts/hr · 12 pts')).toBeInTheDocument()
+  })
+
+  it('enforces accessible Live Release Feed controls, 24x24px clear button, scope="col" headers, ?window=24H links, and semantic tokens', async () => {
+    renderDashboard(['/?window=7D'])
+
+    await waitFor(() => {
+      expect(screen.getAllByText('In Rainbows').length).toBeGreaterThanOrEqual(1)
+    })
+
+    const feedInput = screen.getByRole('textbox', { name: 'Filter live release feed' })
+    expect(feedInput.parentElement).toHaveClass('relative', 'flex', 'items-center', 'w-full', 'sm:w-auto', 'sm:min-w-[220px]')
+    expect(feedInput).toHaveClass(
+      'bg-row-hover',
+      'border-strong',
+      'text-ink-primary',
+      'placeholder:text-ink-secondary',
+      'focus:bg-card',
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-accent-primary'
+    )
+
+    // Clear button appears when query is entered, meets >= 24x24px sizing (w-6 h-6), and clears query
+    expect(screen.queryByRole('button', { name: 'Clear filter' })).not.toBeInTheDocument()
+    fireEvent.change(feedInput, { target: { value: 'Doolittle' } })
+    const clearBtn = screen.getByRole('button', { name: 'Clear filter' })
+    expect(clearBtn).toHaveAttribute('type', 'button')
+    expect(clearBtn).toHaveClass(
+      'w-6',
+      'h-6',
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-accent-primary'
+    )
+    fireEvent.click(clearBtn)
+    expect(feedInput).toHaveValue('')
+
+    const retailerSelect = screen.getByRole('combobox', { name: 'Filter feed by retailer' })
+    const sortSelect = screen.getByRole('combobox', { name: 'Sort live release feed' })
+    for (const select of [retailerSelect, sortSelect]) {
+      expect(select).toHaveClass(
+        'bg-card',
+        'border-strong',
+        'text-ink-primary',
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-2',
+        'focus-visible:outline-accent-primary'
+      )
+    }
+
+    const feedTable = screen.getByRole('table')
+    const columnHeaders = within(feedTable).getAllByRole('columnheader')
+    expect(columnHeaders).toHaveLength(7)
+    for (const header of columnHeaders) {
+      expect(header).toHaveAttribute('scope', 'col')
+    }
+
+    // All Album Detail and Release Detail links inside Live Release Feed preserve ?window=24H and focus-visible ring
+    const rows = within(feedTable).getAllByTestId('feed-table-row')
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(row).toHaveClass('hover:bg-row-hover')
+      const links = within(row).getAllByRole('link')
+      expect(links).toHaveLength(2)
+      for (const link of links) {
+        expect(link.getAttribute('href')).toMatch(/\?window=24H$/)
+        expect(link).toHaveClass(
+          'focus-visible:outline-2',
+          'focus-visible:outline-offset-2',
+          'focus-visible:outline-accent-primary'
+        )
+      }
+    }
   })
 })

@@ -8,7 +8,7 @@ import { formatRelativeTime } from '../utils/formatTime'
 
 type WindowType = '24H' | '7D' | '1M'
 type TierFilter = 'all' | 'high' | 'moderate' | 'low'
-type SortOption = 'hype_index' | 'velocity' | 'recency'
+type SortOption = 'hype_index' | 'velocity' | 'recency' | 'upvotes'
 
 interface AlbumLeaderboardItem {
   album_id: string
@@ -89,6 +89,19 @@ async function fetchDashboard(window: WindowType): Promise<DashboardResponse> {
 }
 
 const WINDOW_OPTIONS: WindowType[] = ['24H', '7D', '1M']
+
+const TIER_OPTIONS: Array<{ value: TierFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'high', label: 'High 75–100' },
+  { value: 'moderate', label: 'Mod 40–74' },
+  { value: 'low', label: 'Low 0–39' },
+]
+
+const TIER_BAR_CLASS: Record<'high' | 'moderate' | 'low', string> = {
+  high: 'bg-hype-high',
+  moderate: 'bg-hype-moderate',
+  low: 'bg-ink-secondary',
+}
 
 const FOCUS_RING_CLASS =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary'
@@ -209,6 +222,7 @@ export const DemandDashboard: React.FC = () => {
   // Live Release Feed controls
   const [feedQuery, setFeedQuery] = useState('')
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
+  const [retailerFilter, setRetailerFilter] = useState<string>('all')
   const [sortBy, setSortBy] = useState<SortOption>('hype_index')
 
   const {
@@ -251,6 +265,18 @@ export const DemandDashboard: React.FC = () => {
     (fixed24hError instanceof Error ? fixed24hError.message : null) ||
     'Failed to load demand intelligence.'
 
+  // Distinct non-null, non-empty Retailer options from fixed 24H Live Release Feed
+  const retailerOptions = useMemo(() => {
+    const retailers = new Set<string>()
+    for (const item of fixed24hData?.live_feed ?? []) {
+      const name = item.retailer_name?.trim()
+      if (name && name !== 'Wide / Unspecified') {
+        retailers.add(name)
+      }
+    }
+    return Array.from(retailers).sort((a, b) => a.localeCompare(b))
+  }, [fixed24hData?.live_feed])
+
   // Filter and sort Live Release Feed (fixed 24H cohort)
   const filteredFeed = useMemo(() => {
     const rawFeed = fixed24hData?.live_feed ?? []
@@ -271,19 +297,31 @@ export const DemandDashboard: React.FC = () => {
       result = result.filter((item) => item.tier === tierFilter)
     }
 
+    if (retailerFilter !== 'all') {
+      result = result.filter((item) => item.retailer_name?.trim() === retailerFilter)
+    }
+
+    const postedAtMs =
+      sortBy === 'recency'
+        ? new Map(result.map((item) => [item, Date.parse(item.posted_at) || 0]))
+        : null
+
     result.sort((a, b) => {
       if (sortBy === 'velocity') {
-        return b.hype_velocity - a.hype_velocity
+        return b.hype_velocity - a.hype_velocity || b.hype_index - a.hype_index
       }
-      if (sortBy === 'recency') {
-        return new Date(b.posted_at).getTime() - new Date(a.posted_at).getTime()
+      if (sortBy === 'upvotes') {
+        return b.score - a.score || b.hype_index - a.hype_index
+      }
+      if (postedAtMs) {
+        return (postedAtMs.get(b) ?? 0) - (postedAtMs.get(a) ?? 0) || b.hype_index - a.hype_index
       }
       // default: hype_index
       return b.hype_index - a.hype_index
     })
 
     return result
-  }, [fixed24hData?.live_feed, feedQuery, tierFilter, sortBy])
+  }, [fixed24hData?.live_feed, feedQuery, tierFilter, retailerFilter, sortBy])
 
   const topAlbums = albumData?.top_albums || []
   const topReleases = releaseData?.top_releases || []
@@ -392,13 +430,7 @@ export const DemandDashboard: React.FC = () => {
                             <TierBadge value={album.hype_index} tier={album.tier} />
                             <div className="w-full bg-accent-sand h-1.5 rounded-[2px] mt-1 overflow-hidden border border-ink-primary">
                               <div
-                                className={`h-full ${
-                                  album.tier === 'high'
-                                    ? 'bg-hype-high'
-                                    : album.tier === 'moderate'
-                                    ? 'bg-hype-moderate'
-                                    : 'bg-ink-secondary'
-                                }`}
+                                className={`h-full ${TIER_BAR_CLASS[album.tier]}`}
                                 style={{ width: `${Math.min(100, Math.max(0, album.hype_index))}%` }}
                               />
                             </div>
@@ -564,70 +596,103 @@ export const DemandDashboard: React.FC = () => {
       </div>
 
       {/* Full-Width Live Release Feed */}
-      <div className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col gap-4">
+      <div className="bg-card border-strong rounded-[6px] shadow-brutal-md p-5 flex flex-col gap-4">
         {/* Header and Filter Controls */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#E5E0DA]">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-border-hairline">
           <div>
             <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-[#121212]" />
-              <h2 className="font-grotesk font-bold text-lg text-[#121212]">
+              <Layers className="w-4 h-4 text-ink-primary" aria-hidden="true" />
+              <h2 className="font-grotesk font-bold text-lg text-ink-primary">
                 Live Release Feed
               </h2>
             </div>
-            <p className="font-sans text-xs text-[#646464] mt-0.5">
+            <p className="font-sans text-xs text-ink-secondary mt-0.5">
               Live pressings ledger with real-time velocity, variant specs, and Reddit community conviction.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             {/* Search Input */}
-            <div className="relative flex items-center min-w-[220px]">
-              <Search className="absolute left-2.5 w-3.5 h-3.5 text-[#646464] pointer-events-none" />
+            <div className="relative flex items-center w-full sm:w-auto sm:min-w-[220px]">
+              <Search className="absolute left-2.5 w-3.5 h-3.5 text-ink-secondary pointer-events-none" aria-hidden="true" />
               <input
                 type="text"
+                aria-label="Filter live release feed"
                 value={feedQuery}
                 onChange={(e) => setFeedQuery(e.target.value)}
                 placeholder="Filter feed by artist, album, variant, retailer..."
-                className="w-full pl-8 pr-7 py-1.5 bg-[#FAF7F5] border-[1.5px] border-[#121212] rounded-[4px] font-sans text-xs text-[#121212] placeholder-[#646464] focus:outline-none focus:bg-white shadow-brutal-sm"
+                className={`w-full pl-8 pr-8 py-1.5 bg-row-hover border-strong rounded-[4px] font-sans text-xs text-ink-primary placeholder:text-ink-secondary focus:bg-card shadow-brutal-sm ${FOCUS_RING_CLASS}`}
               />
               {feedQuery && (
                 <button
+                  type="button"
+                  aria-label="Clear filter"
                   onClick={() => setFeedQuery('')}
-                  className="absolute right-2 text-[#646464] hover:text-[#121212]"
+                  className={`absolute right-1.5 w-6 h-6 inline-flex items-center justify-center rounded-[2px] text-ink-secondary hover:text-ink-primary cursor-pointer ${FOCUS_RING_CLASS}`}
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-3.5 h-3.5" aria-hidden="true" />
                 </button>
               )}
             </div>
 
             {/* Tier Filter Pills */}
-            <div className="flex items-center bg-[#F7F3F0] p-0.5 rounded-full border-[1.5px] border-[#121212]">
-              {(['all', 'high', 'moderate', 'low'] as TierFilter[]).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTierFilter(t)}
-                  className={`px-2.5 py-0.5 rounded-full font-mono text-[11px] capitalize transition-all ${
-                    tierFilter === t
-                      ? 'bg-[#121212] text-white font-bold shadow-brutal-sm'
-                      : 'text-[#646464] hover:text-[#121212]'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
+            <div
+              role="group"
+              aria-label="Filter feed by Hype Index tier"
+              className="flex flex-wrap items-center gap-1 bg-canvas p-1 rounded-full border-strong"
+            >
+              {TIER_OPTIONS.map((t) => {
+                const isActive = tierFilter === t.value
+                return (
+                  <button
+                    key={t.value}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => setTierFilter(t.value)}
+                    className={`min-h-[26px] min-w-[32px] px-2.5 py-0.5 rounded-full font-mono text-[11px] border-strong transition-colors cursor-pointer ${FOCUS_RING_CLASS} ${
+                      isActive
+                        ? 'bg-ink-primary text-white font-bold shadow-brutal-sm'
+                        : 'bg-card text-ink-primary hover:bg-row-hover'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Retailer Filter Selector */}
+            <div className="flex items-center gap-1.5 font-mono text-xs min-w-0 max-w-full">
+              <span className="text-ink-secondary uppercase text-[11px] shrink-0">RETAILER:</span>
+              <select
+                aria-label="Filter feed by retailer"
+                data-testid="feed-retailer-select"
+                value={retailerFilter}
+                onChange={(e) => setRetailerFilter(e.target.value)}
+                className={`bg-card border-strong rounded-[4px] px-2 py-1 min-h-[28px] max-w-full font-mono text-xs text-ink-primary shadow-brutal-sm cursor-pointer ${FOCUS_RING_CLASS}`}
+              >
+                <option value="all">All Retailers</option>
+                {retailerOptions.map((retailer) => (
+                  <option key={retailer} value={retailer}>
+                    {retailer}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Sort Selector */}
             <div className="flex items-center gap-1.5 font-mono text-xs">
-              <span className="text-[#646464] uppercase text-[11px]">SORT:</span>
+              <span className="text-ink-secondary uppercase text-[11px]">SORT:</span>
               <select
+                aria-label="Sort live release feed"
                 data-testid="feed-sort-select"
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="bg-white border-[1.5px] border-[#121212] rounded-[4px] px-2 py-1 font-mono text-xs text-[#121212] shadow-brutal-sm focus:outline-none cursor-pointer"
+                className={`bg-card border-strong rounded-[4px] px-2 py-1 min-h-[28px] font-mono text-xs text-ink-primary shadow-brutal-sm cursor-pointer ${FOCUS_RING_CLASS}`}
               >
                 <option value="hype_index">Hype Index ↓</option>
                 <option value="velocity">Hype Velocity ↓</option>
+                <option value="upvotes">Upvotes ↓</option>
                 <option value="recency">Recency ↓</option>
               </select>
             </div>
@@ -638,54 +703,61 @@ export const DemandDashboard: React.FC = () => {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b-[1.5px] border-[#121212] bg-[#F7F3F0] text-[11px] font-mono font-semibold text-[#646464] uppercase tracking-wider">
-                <th className="py-2.5 px-3">Release & Artist</th>
-                <th className="py-2.5 px-3">Variant</th>
-                <th className="py-2.5 px-3">Retailer</th>
-                <th className="py-2.5 px-3 text-center">Hype Index</th>
-                <th className="py-2.5 px-3 text-right">Velocity</th>
-                <th className="py-2.5 px-3 text-right">Reddit Demand</th>
-                <th className="py-2.5 px-3 text-right">Action / Posted</th>
+              <tr className="border-b-[1.5px] border-ink-primary bg-canvas text-[11px] font-mono font-semibold text-ink-secondary uppercase tracking-wider">
+                <th scope="col" className="py-2.5 px-3">Release & Artist</th>
+                <th scope="col" className="py-2.5 px-3">Variant</th>
+                <th scope="col" className="py-2.5 px-3">Retailer</th>
+                <th scope="col" className="py-2.5 px-3 text-center">Hype Index</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Velocity</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Reddit Demand</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Action / Posted</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#E5E0DA] font-sans text-xs">
+            <tbody className="divide-y divide-border-hairline font-sans text-xs">
               {fixed24hLoading ? (
                 Array.from({ length: 5 }).map((_, idx) => (
                   <tr key={`feed-skel-${idx}`} data-testid="feed-skeleton-row" className="h-[56px]">
                     <td colSpan={7} className="py-3 px-3">
-                      <div className="h-8 bg-[#E5E0DA] border-[1.5px] border-[#121212] rounded-[4px] animate-pulse" />
+                      <div className="h-8 bg-border-hairline border-strong rounded-[4px] animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : filteredFeed.length === 0 ? (
                 <tr data-testid="feed-empty-state">
                   <td colSpan={7} className="py-12 text-center">
-                    <div className="font-mono text-base font-bold text-[#121212]">
+                    <div className="font-mono text-base font-bold text-ink-primary">
                       0 MATCHING RECORDS
                     </div>
-                    <div className="text-xs text-[#646464] mt-2 font-sans flex items-center justify-center gap-2 flex-wrap">
-                      {feedQuery && (
-                        <span className="inline-block bg-[#F7F3F0] border border-[#121212] px-2.5 py-0.5 rounded font-mono text-xs text-[#121212]">
+                    <div className="text-xs text-ink-secondary mt-2 font-sans flex items-center justify-center gap-2 flex-wrap">
+                      {feedQuery.trim() && (
+                        <span className="inline-block bg-canvas border border-ink-primary px-2.5 py-0.5 rounded font-mono text-xs text-ink-primary">
                           Query: &quot;{feedQuery}&quot;
                         </span>
                       )}
                       {tierFilter !== 'all' && (
-                        <span className="inline-block bg-[#F7F3F0] border border-[#121212] px-2.5 py-0.5 rounded font-mono text-xs text-[#121212]">
+                        <span className="inline-block bg-canvas border border-ink-primary px-2.5 py-0.5 rounded font-mono text-xs text-ink-primary">
                           Tier: {tierFilter.toUpperCase()}
                         </span>
                       )}
-                      {!feedQuery && tierFilter === 'all' && (
-                        <span>No live release feed records matched your current query or tier filter.</span>
+                      {retailerFilter !== 'all' && (
+                        <span className="inline-block bg-canvas border border-ink-primary px-2.5 py-0.5 rounded font-mono text-xs text-ink-primary">
+                          Retailer: {retailerFilter}
+                        </span>
+                      )}
+                      {!feedQuery.trim() && tierFilter === 'all' && retailerFilter === 'all' && (
+                        <span>No live release feed records matched your current filters.</span>
                       )}
                     </div>
                     <button
+                      type="button"
                       onClick={() => {
                         setFeedQuery('')
                         setTierFilter('all')
+                        setRetailerFilter('all')
                         setSortBy('hype_index')
                       }}
                       data-testid="reset-filters-btn"
-                      className="mt-4 px-4 py-2 bg-[#9B6DFF] border-[1.5px] border-[#121212] rounded-[4px] font-mono text-xs font-bold text-[#121212] shadow-brutal-sm hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[1px] active:translate-y-[1px] transition-transform"
+                      className={`mt-4 px-4 py-2 bg-accent-primary border-strong rounded-[4px] font-mono text-xs font-bold text-ink-primary shadow-brutal-sm hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-[1px] active:translate-y-[1px] transition-transform cursor-pointer ${FOCUS_RING_CLASS}`}
                     >
                       Reset Filters
                     </button>
@@ -696,7 +768,7 @@ export const DemandDashboard: React.FC = () => {
                   <tr
                     key={item.release_id}
                     data-testid="feed-table-row"
-                    className="hover:bg-[#FAF7F5] transition-colors"
+                    className="hover:bg-row-hover transition-colors"
                   >
                     {/* 1. Release & Artist */}
                     <td className="py-3 px-3">
@@ -709,11 +781,11 @@ export const DemandDashboard: React.FC = () => {
                         <div className="min-w-0">
                           <Link
                             to={`/albums/${item.album_id}?window=24H`}
-                            className="font-grotesk font-bold text-xs text-[#121212] hover:underline block truncate"
+                            className={`font-grotesk font-bold text-xs text-ink-primary hover:underline block truncate rounded-[2px] ${FOCUS_RING_CLASS}`}
                           >
                             {item.album_title}
                           </Link>
-                          <div className="text-[11px] text-[#646464] truncate">
+                          <div className="text-[11px] text-ink-secondary truncate">
                             {item.combined_artist}
                           </div>
                         </div>
@@ -722,14 +794,14 @@ export const DemandDashboard: React.FC = () => {
 
                     {/* 2. Variant */}
                     <td className="py-3 px-3">
-                      <span className="inline-block border-[1.5px] border-[#121212] px-2 py-0.5 rounded-[4px] font-mono text-[11px] bg-white text-[#121212] shadow-brutal-sm max-w-[160px] truncate">
+                      <span className="inline-block border-strong px-2 py-0.5 rounded-[4px] font-mono text-[11px] bg-card text-ink-primary shadow-brutal-sm max-w-[160px] truncate">
                         {item.variant || 'Standard Pressing'}
                       </span>
                     </td>
 
                     {/* 3. Retailer */}
                     <td className="py-3 px-3">
-                      <span className="text-[#646464] font-sans text-xs max-w-[140px] truncate block">
+                      <span className="text-ink-secondary font-sans text-xs max-w-[140px] truncate block">
                         {item.retailer_name || 'Wide / Unspecified'}
                       </span>
                     </td>
@@ -738,30 +810,24 @@ export const DemandDashboard: React.FC = () => {
                     <td className="py-3 px-3 text-center">
                       <div className="inline-flex flex-col items-center gap-1 w-20">
                         <TierBadge value={item.hype_index} tier={item.tier} />
-                        <div className="w-full h-1.5 bg-[#E5E0DA] rounded-full overflow-hidden border border-[#121212]">
+                        <div className="w-full h-1.5 bg-border-hairline rounded-full overflow-hidden border border-ink-primary">
                           <div
-                            className={`h-full ${
-                              item.tier === 'high'
-                                ? 'bg-[#68D391]'
-                                : item.tier === 'moderate'
-                                ? 'bg-[#ECC94B]'
-                                : 'bg-[#646464]'
-                            }`}
-                            style={{ width: `${item.hype_index}%` }}
+                            className={`h-full ${TIER_BAR_CLASS[item.tier]}`}
+                            style={{ width: `${Math.min(100, Math.max(0, item.hype_index))}%` }}
                           />
                         </div>
                       </div>
                     </td>
 
                     {/* 5. Velocity */}
-                    <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-[#121212]">
+                    <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-ink-primary">
                       +{item.hype_velocity} pts/hr
                     </td>
 
                     {/* 6. Reddit Demand */}
-                    <td className="py-3 px-3 text-right font-mono text-xs text-[#646464]">
-                      <span className="font-bold text-[#121212]">{item.score}</span> pts ·{' '}
-                      <span className="font-bold text-[#121212]">{item.num_comments}</span> cmts
+                    <td className="py-3 px-3 text-right font-mono text-xs text-ink-secondary">
+                      <span className="font-bold text-ink-primary">{item.score}</span> pts ·{' '}
+                      <span className="font-bold text-ink-primary">{item.num_comments}</span> cmts
                     </td>
 
                     {/* 7. Action / Posted */}
@@ -769,11 +835,11 @@ export const DemandDashboard: React.FC = () => {
                       <div className="flex flex-col items-end gap-1">
                         <Link
                           to={`/releases/${item.release_id}?window=24H`}
-                          className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-[#121212] hover:text-[#9B6DFF] transition-colors"
+                          className={`inline-flex items-center gap-1 font-mono text-[11px] font-bold text-ink-primary hover:text-accent-primary transition-colors rounded-[2px] ${FOCUS_RING_CLASS}`}
                         >
-                          View <ArrowUpRight className="w-3.5 h-3.5" />
+                          View <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
                         </Link>
-                        <span className="font-mono text-[10px] text-[#646464]">
+                        <span className="font-mono text-[10px] text-ink-secondary">
                           {formatRelativeTime(item.posted_at)}
                         </span>
                       </div>
