@@ -122,7 +122,7 @@ Elapsed hours $`\Delta t_s`$ are measured from $`t_{\text{base}}`$ to $`t_{\text
 ```math
 v_s =
 \begin{cases}
-\operatorname{round}\!\left(\dfrac{\Delta E_s}{\Delta t_s},\; 1\right) & \text{if } \Delta E_s \gt 0 \\[4pt]
+\text{round}\!\left(\dfrac{\Delta E_s}{\Delta t_s},\; 1\right) & \text{if } \Delta E_s \gt 0 \\[4pt]
 0.0 & \text{otherwise}
 \end{cases}
 ```
@@ -130,7 +130,7 @@ v_s =
 For any `Release`, `Album`, or `Artist`, velocity sums across the **deduplicated union** $`U`$ of linked submissions:
 
 ```math
-V_{\text{entity}} = \operatorname{round}\!\left(\sum_{s \in U} v_s,\; 1\right)
+V_{\text{entity}} = \text{round}\!\left(\sum_{s \in U} v_s,\; 1\right)
 ```
 
 - **Why this design**:
@@ -166,7 +166,7 @@ Within each entity class (`Release`, `Album`, or `Artist`) and active window $`W
 \text{HypeIndex} =
 \begin{cases}
 0 & \text{if } H_{\text{entity}} \le 0 \\[4pt]
-\min\!\left(100,\; \max\!\left(0,\; \operatorname{round}\!\left(100 \cdot \dfrac{\ln(1 + H_{\text{entity}})}{\max\!\left(\ln(1 + H_{\max}),\; \ln(1 + 25.0)\right)}\right)\right)\right) & \text{if } H_{\text{entity}} \gt 0
+\min\!\left(100,\; \max\!\left(0,\; \text{round}\!\left(100 \cdot \dfrac{\ln(1 + H_{\text{entity}})}{\max\!\left(\ln(1 + H_{\max}),\; \ln(1 + 25.0)\right)}\right)\right)\right) & \text{if } H_{\text{entity}} \gt 0
 \end{cases}
 ```
 
@@ -188,14 +188,14 @@ Suppose we score a single-snapshot `r/vinylreleases` submission in the **`24H` w
 
 1. **Engagement Points**: $`E_{\text{curr}} = 66 + 2(15) = 96`$
 2. **Baseline & Gain** (created inside `24H` window): $`E_{\text{base}} = 0,\; \Delta E_s = 96 - 0 = 96`$
-3. **Hype Velocity**: $`\Delta t_s = \max(0.25, 6.0) = 6.0\text{ h} \implies v_s = \operatorname{round}(96 / 6.0, 1) = \mathbf{16.0}\text{ pts/hr}`$
+3. **Hype Velocity**: $`\Delta t_s = \max(0.25, 6.0) = 6.0\text{ h} \implies v_s = \text{round}(96 / 6.0, 1) = \mathbf{16.0}\text{ pts/hr}`$
 4. **Raw Hype**:
    - Upvote quality: $`q_s = 0.5 + 0.5(0.90) = 0.95`$
    - Decay: $`2^{-6.0 / 12.0} = 2^{-0.5} \approx 0.7071`$
    - $`h_s = \left(16.0 + \frac{96}{12.0}\right) \cdot 0.95 \cdot 0.7071 \approx \mathbf{16.1220}`$
 5. **Cohort Hype Index**:
-   - **Active market** ($`H_{\max} = 40.0 \gt 25.0`$): $`\operatorname{round}\!\left(100 \cdot \frac{\ln(17.1220)}{\ln(41.0)}\right) = \mathbf{76}`$ (**High**)
-   - **Why the floor matters**: If a quiet day's #1 post only reaches $`H_{\max} = H_{\text{entity}} = 3.0`$, dividing by $`\ln(1 + 25.0)`$ instead of $`\ln(1 + 3.0)`$ yields $`\operatorname{round}\!\left(100 \cdot \frac{\ln(4.0)}{\ln(26.0)}\right) = \mathbf{43}`$ (**Moderate**) rather than falsely awarding `100`.
+   - **Active market** ($`H_{\max} = 40.0 \gt 25.0`$): $`\text{round}\!\left(100 \cdot \frac{\ln(17.1220)}{\ln(41.0)}\right) = \mathbf{76}`$ (**High**)
+   - **Why the floor matters**: If a quiet day's #1 post only reaches $`H_{\max} = H_{\text{entity}} = 3.0`$, dividing by $`\ln(1 + 25.0)`$ instead of $`\ln(1 + 3.0)`$ yields $`\text{round}\!\left(100 \cdot \frac{\ln(4.0)}{\ln(26.0)}\right) = \mathbf{43}`$ (**Moderate**) rather than falsely awarding `100`.
 
 ---
 
@@ -204,7 +204,7 @@ Suppose we score a single-snapshot `r/vinylreleases` submission in the **`24H` w
 Detail charts (`Album Detail` and `Release Detail`) build $`N + 1`$ uniform timestamp boundaries $`b_0, b_1, \dots, b_N`$ ending at $`t_{\text{now}}`$ and sample cumulative points using **Last Observation Carried Forward (LOCF)**:
 
 ```math
-E(b_i) = \sum_{s \in U} E_s(b_i), \qquad v_{\text{bucket}}(i) = \operatorname{round}\!\left(\frac{\max\!\left(0,\; E(b_i) - E(b_{i-1})\right)}{w_{\text{hrs}}},\; 1\right)
+E(b_i) = \sum_{s \in U} E_s(b_i), \qquad v_{\text{bucket}}(i) = \text{round}\!\left(\frac{\max\!\left(0,\; E(b_i) - E(b_{i-1})\right)}{w_{\text{hrs}}},\; 1\right)
 ```
 
 - For each submission $`s`$ and boundary $`b_i`$: $`E_s(b_i) = 0`$ if $`b_i \lt t_{\text{created}}`$; otherwise the latest snapshot with `captured_at <= b_i`.
@@ -217,14 +217,14 @@ E(b_i) = \sum_{s \in U} E_s(b_i), \qquad v_{\text{bucket}}(i) = \operatorname{ro
 On `Album Detail`, commercial preference across $`K`$ child `Release`s is measured using cumulative engagement points $`E_r = \sum_{s \in U(r)} \max(0, \text{latest\_score}_s + 2 \cdot \text{latest\_num\_comments}_s)`$:
 
 ```math
-\operatorname{share}(r) =
+\text{share}(r) =
 \begin{cases}
-\operatorname{round}\!\left(100 \cdot \dfrac{E_r}{\sum_{j=1}^{K} E_j},\; 1\right) & \text{if } \sum_{j=1}^{K} E_j \gt 0 \\[4pt]
-\operatorname{round}\!\left(\dfrac{100}{K},\; 1\right) & \text{otherwise}
+\text{round}\!\left(100 \cdot \dfrac{E_r}{\sum_{j=1}^{K} E_j},\; 1\right) & \text{if } \sum_{j=1}^{K} E_j \gt 0 \\[4pt]
+\text{round}\!\left(\dfrac{100}{K},\; 1\right) & \text{otherwise}
 \end{cases}
 ```
 
-Any rounding residual $`100.0 - \sum_{j=1}^K \operatorname{share}(j)`$ is applied to the highest-point release so shares always sum to exactly `100.0%`.
+Any rounding residual $`100.0 - \sum_{j=1}^K \text{share}(j)`$ is applied to the highest-point release so shares always sum to exactly `100.0%`.
 
 ---
 
