@@ -21,7 +21,8 @@ The interface prioritizes scanability, high data density, and clear demand signa
 - **Card & Panel Surfaces (`surface-card`: `#FFFFFF`)**: Pure optic white background for elevated cards, metric blocks, tables, and detail containers.
 - **Row Hover & Alternating Tint (`surface-row-hover`: `#FAF7F5`)**: Subtle warm paper tint for interactive table row hover states and alternating rows.
 - **Primary Structural Ink (`ink-primary`: `#121212`)**: Deep ink black used for all structural borders (`1.5px solid #121212`), primary headlines, table headers, active filter pill fills, and hard drop shadows.
-- **Secondary / Subdued Ink (`ink-secondary`: `#646464`)**: Used for timestamps, retailer subtitles, inactive metadata, and low/cooling `Hype Index` tiers.
+- **Secondary / Subdued Ink (`ink-secondary`: `#646464`)**: Used on light surfaces for timestamps, retailer subtitles, inactive metadata, and low/cooling `Hype Index` tiers.
+- **Navigation Rail Muted Ink (`nav-muted` / `--color-nav-muted`: `#94949E`)**: Subdued ink reserved for secondary labels, section headers, inactive sub-links, and provenance text on the `#0E0E10` navigation rail (6.3:1 contrast against `#0E0E10`, meeting WCAG 1.4.3 AA).
 - **Hairline Divider (`border-hairline`: `#E5E0DA`)**: Warm stone neutral used for `1px solid` internal table row dividers and in-card list separators.
 
 ### Semantic Accents & `Hype Index` (0–100) Tiers
@@ -58,11 +59,11 @@ The interface prioritizes scanability, high data density, and clear demand signa
 - **Reference Viewport**: `1440px` desktop frame.
 - **Navigation Rail (`240px` fixed left sidebar, `#0E0E10`)**:
   - Full viewport height, separated from the main workspace by a `1.5px solid #121212` right border.
-  - **Brand Header**: Vinyl monogram mark + `VINYL DEMAND` (`Space Grotesk` `700`) + `r/vinylreleases LEDGER` subtitle (`JetBrains Mono` `11px` `#646464`).
+  - **Brand Header**: Vinyl monogram mark + `VINYL DEMAND` (`Space Grotesk` `700`) + `r/vinylreleases LEDGER` subtitle (`JetBrains Mono` `11px` `#94949E` / `--color-nav-muted`).
   - **Primary Navigation (`INTELLIGENCE`)**:
     1. `Demand Dashboard` (`/`)
     2. `Directory Explorer` (`/directory`) with indented quick-jump sub-links for `Releases` (`/directory?tab=releases`), `Albums` (`/directory?tab=albums`), and `Artists` (`/directory?tab=artists`).
-  - **Rail Footer (Factual Provenance Only)**: Displays `SOURCE: r/vinylreleases` in `JetBrains Mono` (`11px` `#646464`) with no user profile tile, login button, or unbuilt navigation items.
+  - **Rail Footer (Factual Provenance Only)**: Displays `SOURCE: r/vinylreleases` in `JetBrains Mono` (`11px` `#94949E` / `--color-nav-muted`) with no user profile tile, login button, or unbuilt navigation items.
 - **Top Workspace Search & Provenance Bar (`64px` height, `1.5px solid #121212` bottom border)**:
   - Spans the top of the `1200px` main workspace across all 5 screens.
   - **Left**: Global Search Input (`Search releases, albums, artists, variants, retailers... [⌘K]` + `CLEAR`, `#FFFFFF` fill, `1.5px solid #121212`, `2px 2px 0px #121212` shadow). On `Directory Explorer`, binds directly to `?q=<query>` (eliminating any duplicate search input inside the directory filter card). On `Demand Dashboard`, `Album Detail`, `Release Detail`, and `Artist Detail`, submitting routes to `/directory?q=<query>`.
