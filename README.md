@@ -70,75 +70,105 @@ Every leaderboard rank, tier badge (`High` / `Moderate` / `Low`), stepped chart,
 
 ### 1. Hype Window Parameterization
 
-Calculations operate across three selectable windows $W \in \{24\text{H}, 7\text{D}, 1\text{M}\}$, each with a window-scaled freshness half-life $\tau_W$ and uniform time-series grid:
+Calculations operate across three selectable windows $`W \in \{24\text{H}, 7\text{D}, 1\text{M}\}`$, each with a window-scaled freshness half-life $`\tau_W`$ and uniform time-series grid:
 
 | Parameter | `24H` | `7D` | `1M` (`30D`) |
 | :--- | :---: | :---: | :---: |
-| **Window Duration ($D_W$)** | $24\text{ h}$ | $168\text{ h}$ | $720\text{ h}$ |
-| **Cutoff Timestamp ($t_0$)** | $t_{\text{now}} - 24\text{ h}$ | $t_{\text{now}} - 168\text{ h}$ | $t_{\text{now}} - 720\text{ h}$ |
-| **Freshness Half-Life ($\tau_W$)** | $12.0\text{ h}$ | $72.0\text{ h}$ ($3\text{ d}$) | $336.0\text{ h}$ ($14\text{ d}$) |
-| **LOCF Chart Grid ($N \times w_{\text{hrs}}$)** | $24 \times 1\text{ h}$ | $28 \times 6\text{ h}$ | $30 \times 24\text{ h}$ |
+| **Window Duration ($`D_W`$)** | $`24\text{ h}`$ | $`168\text{ h}`$ | $`720\text{ h}`$ |
+| **Cutoff Timestamp ($`t_0`$)** | $`t_{\text{now}} - 24\text{ h}`$ | $`t_{\text{now}} - 168\text{ h}`$ | $`t_{\text{now}} - 720\text{ h}`$ |
+| **Freshness Half-Life ($`\tau_W`$)** | $`12.0\text{ h}`$ | $`72.0\text{ h}`$ ($`3\text{ d}`$) | $`336.0\text{ h}`$ ($`14\text{ d}`$) |
+| **LOCF Chart Grid ($`N \times w_{\text{hrs}}`$)** | $`24 \times 1\text{ h}`$ | $`28 \times 6\text{ h}`$ | $`30 \times 24\text{ h}`$ |
 
 ---
 
-### 2. Composite Engagement Points ($E$)
+### 2. Composite Engagement Points ($`E`$)
 
-$$E = \text{score} + 2 \cdot \text{num\_comments}$$
+```math
+E = \text{score} + 2 \cdot \text{num\_comments}
+```
 
-- **Why this design**: Reddit upvotes reflect passive approval, whereas comments signal active buyer intent—variant comparisons, pressing quality questions, and sell-out alerts. Weighting comments at $2\times$ surfaces releases generating substantive collector discussion.
-
----
-
-### 3. Window Baseline Anchoring & Net Gain ($\Delta E_s$)
-
-For each release-eligible submission $s$, let $E_{\text{curr}}$ be the engagement points from its latest snapshot (falling back to `latest_score` and `latest_num_comments` if no snapshots exist). The baseline $(E_{\text{base}}, t_{\text{base}})$ depends on when the post was created relative to window cutoff $t_0$:
-
-$$(E_{\text{base}}, t_{\text{base}}) = \begin{cases} (0,\; t_{\text{created}}) & \text{if } t_{\text{created}} \ge t_0 \quad \text{(created inside window)} \\ (E(S_{\text{anchor}}),\; t(S_{\text{anchor}})) & \text{if } t_{\text{created}} < t_0 \quad \text{(created before window)} \end{cases}$$
-
-$$\Delta E_s = \max\left(0,\; E_{\text{curr}} - E_{\text{base}}\right)$$
-
-- **Why this design**: Without the **origin anchor** $(0, t_{\text{created}})$ for posts created inside $W$, a brand-new pressing ingested with only one snapshot would evaluate to $\Delta E_s = 0$ and miss immediate launch hype until a second snapshot arrived.
+- **Why this design**: Reddit upvotes reflect passive approval, whereas comments signal active buyer intent—variant comparisons, pressing quality questions, and sell-out alerts. Weighting comments at $`2\times`$ surfaces releases generating substantive collector discussion.
 
 ---
 
-### 4. Hype Velocity ($v_s$ & $V_{\text{entity}}$)
+### 3. Window Baseline Anchoring & Net Gain ($`\Delta E_s`$)
 
-Elapsed hours $\Delta t_s$ are measured from $t_{\text{base}}$ to **$t_{\text{now}}$** with a **15-minute floor** ($0.25\text{ h}$):
+For each release-eligible submission $`s`$, let $`E_{\text{curr}}`$ be the engagement points from its latest snapshot (falling back to `latest_score` and `latest_num_comments` if no snapshots exist). The baseline $`(E_{\text{base}}, t_{\text{base}})`$ depends on when the post was created relative to window cutoff $`t_0`$:
 
-$$\Delta t_s = \max\left(0.25,\; \frac{t_{\text{now}} - t_{\text{base}}}{3600}\right)$$
+```math
+(E_{\text{base}}, t_{\text{base}}) =
+\begin{cases}
+(0,\; t_{\text{created}}) & \text{if } t_{\text{created}} \ge t_0 \quad \text{(created inside window)} \\[4pt]
+(E(S_{\text{anchor}}),\; t(S_{\text{anchor}})) & \text{if } t_{\text{created}} \lt t_0 \quad \text{(created before window)}
+\end{cases}
+```
 
-$$v_s = \begin{cases} \operatorname{round}\!\left(\dfrac{\Delta E_s}{\Delta t_s},\; 1\right) & \text{if } \Delta E_s > 0 \\ 0.0 & \text{otherwise} \end{cases}$$
+```math
+\Delta E_s = \max\left(0,\; E_{\text{curr}} - E_{\text{base}}\right)
+```
 
-For any `Release`, `Album`, or `Artist`, velocity sums across the **deduplicated union** $U$ of linked submissions:
+- **Why this design**: Without the **origin anchor** $`(0, t_{\text{created}})`$ for posts created inside $`W`$, a brand-new pressing ingested with only one snapshot would evaluate to $`\Delta E_s = 0`$ and miss immediate launch hype until a second snapshot arrived.
 
-$$V_{\text{entity}} = \operatorname{round}\!\left(\sum_{s \in U} v_s,\; 1\right)$$
+---
+
+### 4. Hype Velocity ($`v_s`$ & $`V_{\text{entity}}`$)
+
+Elapsed hours $`\Delta t_s`$ are measured from $`t_{\text{base}}`$ to $`t_{\text{now}}`$ with a **15-minute floor** ($`0.25\text{ h}`$):
+
+```math
+\Delta t_s = \max\left(0.25,\; \frac{t_{\text{now}} - t_{\text{base}}}{3600}\right)
+```
+
+```math
+v_s =
+\begin{cases}
+\operatorname{round}\!\left(\dfrac{\Delta E_s}{\Delta t_s},\; 1\right) & \text{if } \Delta E_s \gt 0 \\[4pt]
+0.0 & \text{otherwise}
+\end{cases}
+```
+
+For any `Release`, `Album`, or `Artist`, velocity sums across the **deduplicated union** $`U`$ of linked submissions:
+
+```math
+V_{\text{entity}} = \operatorname{round}\!\left(\sum_{s \in U} v_s,\; 1\right)
+```
 
 - **Why this design**:
-  - The **$0.25\text{ h}$ floor** prevents a 2-minute-old post with a handful of upvotes from spiking toward extreme $\text{pts/hr}$ artifacts.
-  - Measuring $\Delta t_s$ up to **$t_{\text{now}}$** (rather than the latest snapshot timestamp) ensures inactive threads cool naturally as time passes instead of remaining frozen at an old burst rate.
+  - The $`0.25\text{ h}`$ **floor** prevents a 2-minute-old post with a handful of upvotes from spiking toward extreme $`\text{pts/hr}`$ artifacts.
+  - Measuring $`\Delta t_s`$ up to $`t_{\text{now}}`$ (rather than the latest snapshot timestamp) ensures inactive threads cool naturally as time passes instead of remaining frozen at an old burst rate.
 
 ---
 
-### 5. Raw Hype Signal ($h_s$) & Entity Raw Hype ($H_{\text{entity}}$)
+### 5. Raw Hype Signal ($`h_s`$) & Entity Raw Hype ($`H_{\text{entity}}`$)
 
-If $v_s \le 0$ and $\Delta E_s \le 0$, then $h_s = 0$. Otherwise, with submission age $a_s = \max\!\left(0,\; \frac{t_{\text{now}} - t_{\text{created}}}{3600}\right)$ and clamped upvote ratio $r_s \in [0, 1]$ (default $1.0$ if null):
+If $`v_s \le 0`$ and $`\Delta E_s \le 0`$, then $`h_s = 0`$. Otherwise, with submission age $`a_s = \max\!\left(0,\; \frac{t_{\text{now}} - t_{\text{created}}}{3600}\right)`$ and clamped upvote ratio $`r_s \in [0, 1]`$ (default $`1.0`$ if null):
 
-$$q_s = 0.5 + 0.5 \cdot r_s \in [0.5,\; 1.0]$$
+```math
+q_s = 0.5 + 0.5 \cdot r_s \in [0.5,\; 1.0]
+```
 
-$$h_s = \left(v_s + \frac{\Delta E_s}{\tau_W}\right) \cdot q_s \cdot 2^{-a_s / \tau_W}, \qquad H_{\text{entity}} = \sum_{s \in U} h_s$$
+```math
+h_s = \left(v_s + \frac{\Delta E_s}{\tau_W}\right) \cdot q_s \cdot 2^{-a_s / \tau_W}, \qquad H_{\text{entity}} = \sum_{s \in U} h_s
+```
 
 - **Why this design**:
-  - **Velocity + Sustained Volume** ($v_s + \Delta E_s / \tau_W$): Both terms share $\text{pts/hr}$ units, rewarding immediate acceleration while preserving credit for large cumulative window gains.
-  - **Soft Upvote Damping** ($q_s \in [0.5, 1.0]$): Controversial threads (e.g., `r = 0.50` yields $0.75\times$) are gently damped rather than erased, because polarizing drops still indicate demand.
-  - **Window-Scaled Exponential Decay** ($2^{-a_s / \tau_W}$): Signal halves every $\tau_W$ hours so older discussions fade smoothly as fresh announcements arrive.
+  - **Velocity + Sustained Volume** ($`v_s + \Delta E_s / \tau_W`$): Both terms share $`\text{pts/hr}`$ units, rewarding immediate acceleration while preserving credit for large cumulative window gains.
+  - **Soft Upvote Damping** ($`q_s \in [0.5, 1.0]`$): Controversial threads (e.g., `r = 0.50` yields $`0.75\times`$) are gently damped rather than erased, because polarizing drops still indicate demand.
+  - **Window-Scaled Exponential Decay** ($`2^{-a_s / \tau_W}`$): Signal halves every $`\tau_W`$ hours so older discussions fade smoothly as fresh announcements arrive.
 
 ---
 
-### 6. Cohort-Normalized Hype Index ($0\text{–}100$) & Tiers
+### 6. Cohort-Normalized Hype Index (0–100) & Tiers
 
-Within each entity class (`Release`, `Album`, or `Artist`) and active window $W$, raw hype is log-compressed against the cohort maximum $H_{\max}$ with a constant reference floor $H_{\text{floor}} = 25.0$:
+Within each entity class (`Release`, `Album`, or `Artist`) and active window $`W`$, raw hype is log-compressed against the cohort maximum $`H_{\max}`$ with a constant reference floor $`H_{\text{floor}} = 25.0`$:
 
-$$\text{HypeIndex} = \begin{cases} 0 & \text{if } H_{\text{entity}} \le 0 \\ \min\!\left(100,\; \max\!\left(0,\; \operatorname{round}\!\left(100 \cdot \dfrac{\ln(1 + H_{\text{entity}})}{\max\!\left(\ln(1 + H_{\max}),\; \ln(1 + 25.0)\right)}\right)\right)\right) & \text{if } H_{\text{entity}} > 0 \end{cases}$$
+```math
+\text{HypeIndex} =
+\begin{cases}
+0 & \text{if } H_{\text{entity}} \le 0 \\[4pt]
+\min\!\left(100,\; \max\!\left(0,\; \operatorname{round}\!\left(100 \cdot \dfrac{\ln(1 + H_{\text{entity}})}{\max\!\left(\ln(1 + H_{\max}),\; \ln(1 + 25.0)\right)}\right)\right)\right) & \text{if } H_{\text{entity}} \gt 0
+\end{cases}
+```
 
 | Tier | Hype Index Range | Interpretation |
 | :--- | :---: | :--- |
@@ -147,46 +177,54 @@ $$\text{HypeIndex} = \begin{cases} 0 & \text{if } H_{\text{entity}} \le 0 \\ \mi
 | **Low / Cooling** | `0 – 39` | Minimal recent activity or decayed historical interest |
 
 - **Why this design**:
-  - **Log Compression** ($\ln(1 + H)$): Prevents one outlier viral post from compressing every other active pressing into single digits.
-  - **Reference Floor** ($H_{\text{floor}} = 25.0$): Prevents quiet market days from normalizing a lukewarm `3.0` raw-hype post up to `100`.
+  - **Log Compression** ($`\ln(1 + H)`$): Prevents one outlier viral post from compressing every other active pressing into single digits.
+  - **Reference Floor** ($`H_{\text{floor}} = 25.0`$): Prevents quiet market days from normalizing a lukewarm `3.0` raw-hype post up to `100`.
 
 ---
 
 ### 7. Worked Numerical Example
 
-Suppose we score a single-snapshot `r/vinylreleases` submission in the **`24H` window** ($\tau_{24\text{H}} = 12.0\text{ h}$) posted **$6.0\text{ hours}$ ago** with `score = 66`, `num_comments = 15`, and `upvote_ratio = 0.90`:
+Suppose we score a single-snapshot `r/vinylreleases` submission in the **`24H` window** ($`\tau_{24\text{H}} = 12.0\text{ h}`$) posted **6.0 hours** ago with `score = 66`, `num_comments = 15`, and `upvote_ratio = 0.90`:
 
-1. **Engagement Points**: $E_{\text{curr}} = 66 + 2(15) = 96$
-2. **Baseline & Gain** (created inside `24H` window): $E_{\text{base}} = 0,\; \Delta E_s = 96 - 0 = 96$
-3. **Hype Velocity**: $\Delta t_s = \max(0.25, 6.0) = 6.0\text{ h} \implies v_s = \operatorname{round}(96 / 6.0, 1) = \mathbf{16.0\text{ pts/hr}}$
+1. **Engagement Points**: $`E_{\text{curr}} = 66 + 2(15) = 96`$
+2. **Baseline & Gain** (created inside `24H` window): $`E_{\text{base}} = 0,\; \Delta E_s = 96 - 0 = 96`$
+3. **Hype Velocity**: $`\Delta t_s = \max(0.25, 6.0) = 6.0\text{ h} \implies v_s = \operatorname{round}(96 / 6.0, 1) = \mathbf{16.0}\text{ pts/hr}`$
 4. **Raw Hype**:
-   - Upvote quality: $q_s = 0.5 + 0.5(0.90) = 0.95$
-   - Decay: $2^{-6.0 / 12.0} = 2^{-0.5} \approx 0.7071$
-   - $h_s = \left(16.0 + \frac{96}{12.0}\right) \cdot 0.95 \cdot 0.7071 \approx \mathbf{16.1220}$
+   - Upvote quality: $`q_s = 0.5 + 0.5(0.90) = 0.95`$
+   - Decay: $`2^{-6.0 / 12.0} = 2^{-0.5} \approx 0.7071`$
+   - $`h_s = \left(16.0 + \frac{96}{12.0}\right) \cdot 0.95 \cdot 0.7071 \approx \mathbf{16.1220}`$
 5. **Cohort Hype Index**:
-   - **Active market** ($H_{\max} = 40.0 > 25.0$): $\operatorname{round}\!\left(100 \cdot \frac{\ln(17.1220)}{\ln(41.0)}\right) = \mathbf{76}$ (**High**)
-   - **Why the floor matters**: If a quiet day's #1 post only reaches $H_{\max} = H_{\text{entity}} = 3.0$, dividing by $\ln(1 + 25.0)$ instead of $\ln(1 + 3.0)$ yields $\operatorname{round}\!\left(100 \cdot \frac{\ln(4.0)}{\ln(26.0)}\right) = \mathbf{43}$ (**Moderate**) rather than falsely awarding `100`.
+   - **Active market** ($`H_{\max} = 40.0 \gt 25.0`$): $`\operatorname{round}\!\left(100 \cdot \frac{\ln(17.1220)}{\ln(41.0)}\right) = \mathbf{76}`$ (**High**)
+   - **Why the floor matters**: If a quiet day's #1 post only reaches $`H_{\max} = H_{\text{entity}} = 3.0`$, dividing by $`\ln(1 + 25.0)`$ instead of $`\ln(1 + 3.0)`$ yields $`\operatorname{round}\!\left(100 \cdot \frac{\ln(4.0)}{\ln(26.0)}\right) = \mathbf{43}`$ (**Moderate**) rather than falsely awarding `100`.
 
 ---
 
 ### 8. Stepped LOCF Time-Series & Bucket Velocity
 
-Detail charts (`Album Detail` and `Release Detail`) build $N + 1$ uniform timestamp boundaries $b_0, b_1, \dots, b_N$ ending at $t_{\text{now}}$ and sample cumulative points using **Last Observation Carried Forward (LOCF)**:
+Detail charts (`Album Detail` and `Release Detail`) build $`N + 1`$ uniform timestamp boundaries $`b_0, b_1, \dots, b_N`$ ending at $`t_{\text{now}}`$ and sample cumulative points using **Last Observation Carried Forward (LOCF)**:
 
-$$E(b_i) = \sum_{s \in U} E_s(b_i), \qquad v_{\text{bucket}}(i) = \operatorname{round}\!\left(\frac{\max\!\left(0,\; E(b_i) - E(b_{i-1})\right)}{w_{\text{hrs}}},\; 1\right)$$
+```math
+E(b_i) = \sum_{s \in U} E_s(b_i), \qquad v_{\text{bucket}}(i) = \operatorname{round}\!\left(\frac{\max\!\left(0,\; E(b_i) - E(b_{i-1})\right)}{w_{\text{hrs}}},\; 1\right)
+```
 
-- For each submission $s$ and boundary $b_i$: $E_s(b_i) = 0$ if $b_i < t_{\text{created}}$; otherwise the latest snapshot with `captured_at <= b_i`.
-- **Why this design**: Scraper polling timestamps do not align to neat hour marks; `LOCF` produces clean stepped intervals of width $w_{\text{hrs}} \in \{1\text{h}, 6\text{h}, 24\text{h}\}$ without interpolating demand before a thread existed.
+- For each submission $`s`$ and boundary $`b_i`$: $`E_s(b_i) = 0`$ if $`b_i \lt t_{\text{created}}`$; otherwise the latest snapshot with `captured_at <= b_i`.
+- **Why this design**: Scraper polling timestamps do not align to neat hour marks; `LOCF` produces clean stepped intervals of width $`w_{\text{hrs}} \in \{1\text{h}, 6\text{h}, 24\text{h}\}`$ without interpolating demand before a thread existed.
 
 ---
 
 ### 9. Child-Release Share of Demand
 
-On `Album Detail`, commercial preference across $K$ child `Release`s is measured using cumulative engagement points $E_r = \sum_{s \in U(r)} \max(0, \text{latest\_score}_s + 2 \cdot \text{latest\_num\_comments}_s)$:
+On `Album Detail`, commercial preference across $`K`$ child `Release`s is measured using cumulative engagement points $`E_r = \sum_{s \in U(r)} \max(0, \text{latest\_score}_s + 2 \cdot \text{latest\_num\_comments}_s)`$:
 
-$$\operatorname{share}(r) = \begin{cases} \operatorname{round}\!\left(100 \cdot \dfrac{E_r}{\sum_{j=1}^{K} E_j},\; 1\right) & \text{if } \sum_{j=1}^{K} E_j > 0 \\ \operatorname{round}\!\left(\dfrac{100}{K},\; 1\right) & \text{otherwise} \end{cases}$$
+```math
+\operatorname{share}(r) =
+\begin{cases}
+\operatorname{round}\!\left(100 \cdot \dfrac{E_r}{\sum_{j=1}^{K} E_j},\; 1\right) & \text{if } \sum_{j=1}^{K} E_j \gt 0 \\[4pt]
+\operatorname{round}\!\left(\dfrac{100}{K},\; 1\right) & \text{otherwise}
+\end{cases}
+```
 
-Any rounding residual $100.0 - \sum_{j=1}^K \operatorname{share}(j)$ is applied to the highest-point release so shares always sum to exactly `100.0%`.
+Any rounding residual $`100.0 - \sum_{j=1}^K \operatorname{share}(j)`$ is applied to the highest-point release so shares always sum to exactly `100.0%`.
 
 ---
 
@@ -201,10 +239,10 @@ Any rounding residual $100.0 - \sum_{j=1}^K \operatorname{share}(j)$ is applied 
 <details>
 <summary>Edge-case &amp; fallback rules implemented in hype.py and timeseries.py</summary>
 
-1. **Older posts without pre-$t_0$ snapshots** (`compute_submission_metrics`): When $t_{\text{created}} < t_0$ and no snapshot exists at or before $t_0$, the baseline falls back to the earliest snapshot inside $(t_0, \text{now}]$; if no snapshots exist at all, $E_{\text{base}} = E_{\text{curr}}$ so $\Delta E_s = 0$ and $v_s = 0.0$.
-2. **Purged snapshots in LOCF curves** (`compute_locf_time_series`): If $b_i \ge t_{\text{created}}$ and snapshots exist only *after* $b_i$, $E_s(b_i) = 0$ (not yet observed). If zero snapshots exist in the database (e.g., retention purge), the latest submission `score + 2 * num_comments` is carried forward.
-3. **Negative or zero signals**: Any $\Delta E_s \le 0$ clamps velocity to `0.0` and raw hype to `0.0`, guaranteeing `HypeIndex = 0`.
-4. **Zero-total Share of Demand**: When an album has $K$ child releases with $0$ total engagement points, share falls back uniformly to `round(100.0 / K, 1)` before residual adjustment.
+1. **Older posts without pre-window ($`t_0`$) snapshots** (`compute_submission_metrics`): When $`t_{\text{created}} \lt t_0`$ and no snapshot exists at or before $`t_0`$, the baseline falls back to the earliest snapshot inside $`(t_0, \text{now}]`$; if no snapshots exist at all, $`E_{\text{base}} = E_{\text{curr}}`$ so $`\Delta E_s = 0`$ and $`v_s = 0.0`$.
+2. **Purged snapshots in LOCF curves** (`compute_locf_time_series`): If $`b_i \ge t_{\text{created}}`$ and snapshots exist only *after* $`b_i`$, $`E_s(b_i) = 0`$ (not yet observed). If zero snapshots exist in the database (e.g., retention purge), the latest submission `score + 2 * num_comments` is carried forward.
+3. **Negative or zero signals**: Any $`\Delta E_s \le 0`$ clamps velocity to `0.0` and raw hype to `0.0`, guaranteeing `HypeIndex = 0`.
+4. **Zero-total Share of Demand**: When an album has $`K`$ child releases with $`0`$ total engagement points, share falls back uniformly to `round(100.0 / K, 1)` before residual adjustment.
 
 </details>
 
