@@ -1,32 +1,47 @@
-# React + TypeScript + Vite
+# Tune-In Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite single-page application implementing **The Neo-Brutalist Ledger** UI for **Tune-In** (see [`../DESIGN.md`](../DESIGN.md)).
 
-Currently, two official plugins are available:
+See the [root README](../README.md) for product overview, system architecture, and scoring formulas, and [`../backend/README.md`](../backend/README.md) for running the API server.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Framework**: React 19 + TypeScript + Vite
+- **Styling**: Tailwind CSS v4 (`@tailwindcss/vite`)
+- **Routing & State**: React Router v7 + TanStack Query v5 (`30s` stale time)
+- **Icons & Tooling**: Lucide React, Vitest + React Testing Library, Oxlint
 
-## Expanding the Oxlint configuration
+---
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## Setup & Running Locally
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+From the `frontend/` directory:
+
+```powershell
+# Install npm dependencies
+npm install
+
+# Start Vite dev server at http://127.0.0.1:5173
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+[`vite.config.ts`](./vite.config.ts) proxies all `/api` requests to the backend server at `http://127.0.0.1:8000`, so start the backend first when running against live data.
+
+---
+
+## Build, Lint & Tests
+
+From the `frontend/` directory:
+
+```powershell
+# Run unit & component tests (Vitest)
+npm test
+
+# Lint codebase (Oxlint)
+npm run lint
+
+# Type-check and build production bundle (tsc -b && vite build)
+npm run build
+```
