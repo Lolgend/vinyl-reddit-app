@@ -425,9 +425,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         className="font-mono text-[11px] text-ink-secondary shrink-0 ml-4 hidden md:flex items-center gap-1.5"
         data-testid="freshness-indicator"
       >
-        <span>SOURCE: r/vinylreleases</span>
-        <span>·</span>
-        <span>LAST SNAPSHOT:</span>
+        <span>LAST UPDATED:</span>
         <span className="font-semibold text-ink-primary">{freshnessLabel}</span>
       </div>
     </header>

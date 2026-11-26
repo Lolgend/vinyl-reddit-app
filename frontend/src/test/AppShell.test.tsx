@@ -58,7 +58,8 @@ describe('AppShell Responsive Drawer', () => {
     renderAppShell()
 
     const mainContent = screen.getByTestId('main-content')
-    expect(mainContent).toHaveClass('p-4', 'sm:p-6', 'lg:p-8')
+    expect(mainContent).toHaveClass('max-w-[1600px]', 'p-4', 'sm:p-6', 'lg:p-8')
+    expect(mainContent).not.toHaveClass('max-w-[1200px]')
     expect(mainContent.parentElement).toHaveClass('ml-0', 'lg:ml-[240px]')
 
     const rail = screen.getByTestId('navigation-rail')
@@ -223,17 +224,20 @@ describe('AppShell Responsive Drawer', () => {
 })
 
 describe('NavigationRail', () => {
-  it('renders brand header, navigation destinations, and factual rail footer', () => {
+  it('renders brand header and navigation destinations without source-specific footer', () => {
     renderWithProviders(<NavigationRail />)
 
     expect(screen.getByText('VINYL DEMAND')).toBeInTheDocument()
-    expect(screen.getByText('r/vinylreleases LEDGER')).toBeInTheDocument()
+    expect(screen.getByText('NO MORE GUESSING')).toBeInTheDocument()
     expect(screen.getByTestId('nav-demand-dashboard')).toBeInTheDocument()
     expect(screen.getByTestId('nav-directory-explorer')).toBeInTheDocument()
     expect(screen.getByTestId('nav-sub-releases')).toBeInTheDocument()
     expect(screen.getByTestId('nav-sub-albums')).toBeInTheDocument()
     expect(screen.getByTestId('nav-sub-artists')).toBeInTheDocument()
-    expect(screen.getByTestId('rail-footer')).toHaveTextContent('SOURCE: r/vinylreleases')
+    expect(screen.queryByTestId('rail-footer')).not.toBeInTheDocument()
+
+    const rail = screen.getByTestId('navigation-rail')
+    expect(rail.textContent).not.toMatch(/reddit|r\/vinylreleases|SOURCE:/i)
   })
 
   it('preserves hype window parameter in navigation links', () => {
@@ -278,9 +282,8 @@ describe('NavigationRail', () => {
   it('uses accessible nav-muted contrast token and visible focus-visible outlines', () => {
     renderWithProviders(<NavigationRail isOpen />, '/')
 
-    expect(screen.getByText('r/vinylreleases LEDGER')).toHaveClass('text-nav-muted')
+    expect(screen.getByText('NO MORE GUESSING')).toHaveClass('text-nav-muted')
     expect(screen.getByText('INTELLIGENCE')).toHaveClass('text-nav-muted')
-    expect(screen.getByTestId('rail-footer')).toHaveClass('text-nav-muted')
     expect(screen.getByTestId('nav-sub-releases')).toHaveClass('text-nav-muted')
     expect(screen.getByTestId('nav-sub-albums')).toHaveClass('text-nav-muted')
     expect(screen.getByTestId('nav-sub-artists')).toHaveClass('text-nav-muted')
@@ -305,13 +308,18 @@ describe('NavigationRail', () => {
 })
 
 describe('TopBar', () => {
-  it('renders search input and provenance indicator', async () => {
+  it('renders search input and source-agnostic freshness indicator', async () => {
     renderWithProviders(<TopBar />)
 
     const searchInput = screen.getByTestId('global-search-input')
     expect(searchInput).toBeInTheDocument()
 
-    expect(screen.getByTestId('freshness-indicator')).toHaveTextContent('SOURCE: r/vinylreleases')
+    const freshness = screen.getByTestId('freshness-indicator')
+    expect(freshness).toHaveTextContent('LAST UPDATED:')
+    expect(freshness.textContent).not.toMatch(/reddit|r\/vinylreleases|SOURCE:|LAST SNAPSHOT/i)
+    await waitFor(() => {
+      expect(freshness).not.toHaveTextContent('SYNCING...')
+    })
   })
 
   it('shows clear button and clears search when clicked', () => {
