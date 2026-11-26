@@ -6,13 +6,9 @@ export interface TimeSeriesBucket {
   bucket_start: string
   bucket_end: string
   cumulative_points: number
-  velocity_pts_per_hr: number
-  timestamp: string
-  points: number
-  velocity: number
 }
 
-export interface SubmissionMarker {
+export interface MentionMarker {
   timestamp: string
   submission_id: string
   title: string
@@ -21,7 +17,7 @@ export interface SubmissionMarker {
 export interface ActivityOverTimeChartProps {
   window: HypeWindow
   timeSeries: TimeSeriesBucket[]
-  submissionMarkers: SubmissionMarker[]
+  mentionMarkers: MentionMarker[]
   hasActivity: boolean
   lastSeenDisplay: string
   subtitle: string
@@ -89,7 +85,7 @@ function computeTickIndices(numBuckets: number): number[] {
 export const ActivityOverTimeChart: React.FC<ActivityOverTimeChartProps> = ({
   window,
   timeSeries,
-  submissionMarkers,
+  mentionMarkers,
   hasActivity,
   lastSeenDisplay,
   subtitle,
@@ -145,7 +141,7 @@ export const ActivityOverTimeChart: React.FC<ActivityOverTimeChartProps> = ({
   const tN = numBuckets > 0 ? new Date(timeSeries[numBuckets - 1].bucket_end).getTime() : 1
   const positionedMarkers =
     hasActivity && numBuckets > 0
-      ? submissionMarkers.map((marker, idx) => {
+      ? mentionMarkers.map((marker, idx) => {
           const tm = new Date(marker.timestamp).getTime()
           const ratio = Math.max(0, Math.min(1, (tm - t0) / Math.max(1, tN - t0)))
           const x = padLeft + ratio * chartWidth
@@ -202,7 +198,7 @@ export const ActivityOverTimeChart: React.FC<ActivityOverTimeChartProps> = ({
               }}
             >
               <div className="text-[#E5E0DA]">
-                {formatTooltipTimestamp(activePoint.bucket.bucket_end || activePoint.bucket.timestamp)}
+                {formatTooltipTimestamp(activePoint.bucket.bucket_end)}
               </div>
               <div className="font-bold">
                 {(hasActivity ? activePoint.bucket.cumulative_points : 0).toLocaleString()} engagement
@@ -319,7 +315,7 @@ export const ActivityOverTimeChart: React.FC<ActivityOverTimeChartProps> = ({
               const bandX = Math.max(padLeft, prevX)
               const bandW = Math.max(4, nextX - bandX)
               const engagementCount = hasActivity ? p.bucket.cumulative_points : 0
-              const tsLabel = formatTooltipTimestamp(p.bucket.bucket_end || p.bucket.timestamp)
+              const tsLabel = formatTooltipTimestamp(p.bucket.bucket_end)
 
               return (
                 <rect
@@ -412,7 +408,7 @@ export const ActivityOverTimeChart: React.FC<ActivityOverTimeChartProps> = ({
               <>
                 {tickIndices.map((idx) => {
                   const p = points[idx]
-                  const label = formatAxisTick(p.bucket.bucket_end || p.bucket.timestamp, window)
+                  const label = formatAxisTick(p.bucket.bucket_end, window)
                   if (!label) return null
                   return (
                     <text

@@ -2,17 +2,18 @@ import React from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Activity,
   AlertTriangle,
   ArrowLeft,
   Disc,
-  Flame,
   Layers,
 } from 'lucide-react'
+import { EntityDetailSkeleton } from '../components/EntityDetailSkeleton'
 import { EntityEditorialHeader, type HypeWindow } from '../components/EntityEditorialHeader'
+import { EngagementKpiCard, HypeIndexKpiCard } from '../components/EntityHeroKpiCards'
+import { HypeIndexMeter } from '../components/HypeIndexMeter'
 import { VinylMonogram } from '../components/VinylMonogram'
-import { TierBadge } from '../components/TierBadge'
-import { formatRelativeTime } from '../utils/formatTime'
+import { formatLastSeenDisplay } from '../utils/formatTime'
+import { formatVariantLabel } from '../utils/formatters'
 
 type WindowType = HypeWindow
 type TierType = 'high' | 'moderate' | 'low'
@@ -127,39 +128,7 @@ export const ArtistDetail: React.FC = () => {
   // Loading Skeleton State matching exact container geometries
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6" data-testid="screen-artist-detail-loading">
-        <div className="w-32 h-4 bg-[#E5E0DA] rounded animate-pulse" />
-        <div className="border-b-[3px] border-[#121212] pb-3 flex items-end justify-between gap-3">
-          <div className="w-36 h-10 bg-[#E5E0DA] rounded animate-pulse" />
-          <div className="w-36 h-8 bg-[#E5E0DA] rounded-full animate-pulse" />
-        </div>
-        <div className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-6 flex items-center gap-4">
-          <div
-            data-testid="masthead-monogram-skeleton"
-            className="w-[68px] h-[68px] rounded-full bg-[#E5E0DA] border-[1.5px] border-[#121212] animate-pulse shrink-0"
-          />
-          <div className="flex flex-col gap-2">
-            <div className="w-64 h-8 bg-[#E5E0DA] rounded animate-pulse" />
-            <div className="w-40 h-5 bg-[#E5E0DA] rounded animate-pulse" />
-            <div className="w-48 h-6 bg-[#E5E0DA] rounded-full animate-pulse mt-1" />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div
-              key={i}
-              data-testid="hero-kpi-skeleton-card"
-              className="h-28 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-            >
-              <div className="flex justify-between">
-                <div className="w-24 h-3.5 bg-[#E5E0DA] rounded animate-pulse" />
-                <div className="w-12 h-4 bg-[#E5E0DA] rounded animate-pulse" />
-              </div>
-              <div className="w-20 h-7 bg-[#E5E0DA] rounded animate-pulse" />
-              <div className="w-full h-2 bg-[#E5E0DA] rounded animate-pulse" />
-            </div>
-          ))}
-        </div>
+      <EntityDetailSkeleton screenTestId="screen-artist-detail-loading" monogramShape="circle">
         {/* Albums Table Skeleton */}
         <div className="h-72 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col justify-between">
           <div className="w-48 h-6 bg-[#E5E0DA] rounded animate-pulse" />
@@ -178,7 +147,7 @@ export const ArtistDetail: React.FC = () => {
             ))}
           </div>
         </div>
-      </div>
+      </EntityDetailSkeleton>
     )
   }
 
@@ -221,10 +190,7 @@ export const ArtistDetail: React.FC = () => {
   const totalComments = hero_kpi.reddit_demand?.total_comments ?? hero_kpi.total_comments
   const submissionCount = hero_kpi.reddit_demand?.submission_count ?? hero_kpi.submission_count
 
-  // Format last seen date string
-  const lastSeenDate = artist.last_seen_at
-    ? `${formatRelativeTime(artist.last_seen_at)} (${new Date(artist.last_seen_at).toISOString().split('T')[0]})`
-    : 'NEVER'
+  const lastSeenDate = formatLastSeenDisplay(artist.last_seen_at)
 
   return (
     <div className="flex flex-col gap-6" data-testid="screen-artist-detail">
@@ -264,60 +230,12 @@ export const ArtistDetail: React.FC = () => {
 
       {/* 3-Card Hero KPI Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" data-testid="hero-kpi-strip">
-        {/* Card 1: Hype Index */}
-        <div
-          className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-          data-testid="hero-kpi-hype-index"
-        >
-          <div className="flex items-center justify-between text-[#646464] mb-2">
-            <span className="font-mono text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
-              <Flame className="w-3.5 h-3.5 text-[#121212]" />
-              Hype Index
-            </span>
-            <TierBadge value={hero_kpi.hype_index} tier={hero_kpi.tier} />
-          </div>
-          <div>
-            <div className="font-mono font-bold text-2xl text-[#121212]">
-              {hero_kpi.hype_index}{' '}
-              <span className="text-sm font-normal text-[#646464]">/ 100</span>
-            </div>
-            {/* Progress track */}
-            <div className="w-full bg-[#E5E0DA] h-2 rounded-[2px] mt-2 overflow-hidden border border-[#121212]">
-              <div
-                className={`h-full ${
-                  hero_kpi.tier === 'high'
-                    ? 'bg-[#68D391]'
-                    : hero_kpi.tier === 'moderate'
-                    ? 'bg-[#ECC94B]'
-                    : 'bg-[#646464]'
-                }`}
-                style={{ width: `${hero_kpi.hype_index}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Card 2: Engagement */}
-        <div
-          className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-          data-testid="hero-kpi-engagement"
-        >
-          <div className="flex items-center justify-between text-[#646464] mb-2">
-            <span className="font-mono text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-[#121212]" />
-              Engagement
-            </span>
-          </div>
-          <div>
-            <div className="font-mono font-bold text-2xl text-[#121212]">
-              {totalScore} <span className="text-sm font-normal text-[#646464]">votes</span>
-            </div>
-            <div className="font-mono text-[11px] text-[#646464] mt-2 truncate">
-              {totalComments} comments · {submissionCount}{' '}
-              {submissionCount === 1 ? 'mention' : 'mentions'}
-            </div>
-          </div>
-        </div>
+        <HypeIndexKpiCard hypeIndex={hero_kpi.hype_index} tier={hero_kpi.tier} />
+        <EngagementKpiCard
+          totalScore={totalScore}
+          totalComments={totalComments}
+          mentionCount={submissionCount}
+        />
 
         {/* Card 3: Discography */}
         <div
@@ -429,21 +347,12 @@ export const ArtistDetail: React.FC = () => {
 
                     {/* Column 5: Hype Index */}
                     <td className="py-3 px-3">
-                      <div className="flex items-center gap-1.5">
-                        <TierBadge value={alb.hype_index} tier={alb.tier} />
-                        <div className="w-12 bg-[#E5E0DA] h-1.5 rounded-[1px] overflow-hidden border border-[#121212]">
-                          <div
-                            className={`h-full ${
-                              alb.tier === 'high'
-                                ? 'bg-[#68D391]'
-                                : alb.tier === 'moderate'
-                                ? 'bg-[#ECC94B]'
-                                : 'bg-[#646464]'
-                            }`}
-                            style={{ width: `${alb.hype_index}%` }}
-                          />
-                        </div>
-                      </div>
+                      <HypeIndexMeter
+                        hypeIndex={alb.hype_index}
+                        tier={alb.tier}
+                        layout="inline"
+                        barWidthClassName="w-12"
+                      />
                     </td>
 
                     {/* Column 6: Action */}
@@ -506,7 +415,7 @@ export const ArtistDetail: React.FC = () => {
             </thead>
             <tbody>
               {child_releases.map((rel) => {
-                const variantName = rel.variant || 'Standard Pressing'
+                const variantName = formatVariantLabel(rel.variant)
                 const retailerName = rel.retailer_name || 'Wide / Unspecified'
 
                 return (
@@ -543,21 +452,12 @@ export const ArtistDetail: React.FC = () => {
 
                     {/* Column 5: Hype Index */}
                     <td className="py-3 px-3">
-                      <div className="flex items-center gap-1.5">
-                        <TierBadge value={rel.hype_index} tier={rel.tier} />
-                        <div className="w-12 bg-[#E5E0DA] h-1.5 rounded-[1px] overflow-hidden border border-[#121212]">
-                          <div
-                            className={`h-full ${
-                              rel.tier === 'high'
-                                ? 'bg-[#68D391]'
-                                : rel.tier === 'moderate'
-                                ? 'bg-[#ECC94B]'
-                                : 'bg-[#646464]'
-                            }`}
-                            style={{ width: `${rel.hype_index}%` }}
-                          />
-                        </div>
-                      </div>
+                      <HypeIndexMeter
+                        hypeIndex={rel.hype_index}
+                        tier={rel.tier}
+                        layout="inline"
+                        barWidthClassName="w-12"
+                      />
                     </td>
 
                     {/* Column 6: Action */}

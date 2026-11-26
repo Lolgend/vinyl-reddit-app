@@ -3,17 +3,19 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ArrowUpRight, Flame, Layers, Search, Sparkles, TrendingUp, X } from 'lucide-react'
 import { VinylMonogram } from '../components/VinylMonogram'
+import { HypeIndexMeter } from '../components/HypeIndexMeter'
 import { TierBadge } from '../components/TierBadge'
 import { formatRelativeTime } from '../utils/formatTime'
+import { formatVariantLabel } from '../utils/formatters'
 import {
   FOCUS_RING_CLASS,
   PILL_BUTTON_ACTIVE_CLASS,
   PILL_BUTTON_BASE_CLASS,
   PILL_BUTTON_INACTIVE_CLASS,
+  TIER_BAR_CLASS,
 } from '../utils/uiClasses'
 
 const ALL_FILTER = 'all' as const
-const DEFAULT_VARIANT_LABEL = 'Standard Pressing'
 const DEFAULT_RETAILER_LABEL = 'Wide / Unspecified'
 
 type WindowType = '24H' | '7D' | '1M'
@@ -108,12 +110,6 @@ const TIER_OPTIONS: Array<{ value: TierFilter; label: string }> = [
   { value: 'low', label: 'Low 0–39' },
 ]
 
-const TIER_BAR_CLASS: Record<'high' | 'moderate' | 'low', string> = {
-  high: 'bg-hype-high',
-  moderate: 'bg-hype-moderate',
-  low: 'bg-ink-secondary',
-}
-
 interface HypeWindowSwitcherProps {
   activeWindow: WindowType
   onChange: (w: WindowType) => void
@@ -150,23 +146,6 @@ const HypeWindowSwitcher: React.FC<HypeWindowSwitcherProps> = ({
   </div>
 )
 
-interface HypeIndexMeterProps {
-  hypeIndex: number
-  tier: 'high' | 'moderate' | 'low'
-}
-
-const HypeIndexMeter: React.FC<HypeIndexMeterProps> = ({ hypeIndex, tier }) => (
-  <div className="flex flex-col items-end shrink-0 w-24">
-    <TierBadge value={hypeIndex} tier={tier} />
-    <div className="w-full bg-accent-sand h-1.5 rounded-[2px] mt-1 overflow-hidden border border-ink-primary">
-      <div
-        className={`h-full ${TIER_BAR_CLASS[tier]}`}
-        style={{ width: `${Math.min(100, Math.max(0, hypeIndex))}%` }}
-      />
-    </div>
-  </div>
-)
-
 interface ReleaseLeaderboardRowProps {
   release: ReleaseLeaderboardItem
   window: WindowType
@@ -197,7 +176,7 @@ const ReleaseLeaderboardRow: React.FC<ReleaseLeaderboardRowProps> = ({
             {fullTitle}
           </Link>
           <div className="text-[11px] text-ink-secondary font-sans truncate">
-            {release.variant || DEFAULT_VARIANT_LABEL} ·{' '}
+            {formatVariantLabel(release.variant)} ·{' '}
             {release.retailer_name || DEFAULT_RETAILER_LABEL}
           </div>
         </div>
@@ -786,7 +765,7 @@ export const DemandDashboard: React.FC = () => {
                     {/* 2. Variant */}
                     <td className="py-3 px-3">
                       <span className="inline-block border-strong px-2 py-0.5 rounded-[4px] font-mono text-[11px] bg-card text-ink-primary shadow-brutal-sm max-w-[160px] truncate">
-                        {item.variant || DEFAULT_VARIANT_LABEL}
+                        {formatVariantLabel(item.variant)}
                       </span>
                     </td>
 

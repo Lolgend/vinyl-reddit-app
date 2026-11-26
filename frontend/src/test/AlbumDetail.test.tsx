@@ -430,6 +430,48 @@ describe('AlbumDetail Screen', () => {
     expect(screen.getByText(/NO NEW ACTIVITY IN 24H/i)).toBeInTheDocument()
   })
 
+  it('renders zero-activity callout and flat baseline when cumulative_points is carried forward with zero window gain', async () => {
+    const quietCarriedForwardResponse = {
+      ...mockAlbumResponse24H,
+      hero_kpi: {
+        ...mockAlbumResponse24H.hero_kpi,
+        points_gain: 0,
+        reddit_demand: {
+          points_gain: 0,
+          total_score: 95,
+          total_comments: 25,
+          submission_count: 2,
+        },
+      },
+      time_series: Array.from({ length: 24 }).map((_, i) => ({
+        bucket_start: new Date(Date.now() - (24 - i) * 3600000).toISOString(),
+        bucket_end: new Date(Date.now() - (23 - i) * 3600000).toISOString(),
+        cumulative_points: 145,
+        velocity_pts_per_hr: 0,
+        timestamp: new Date(Date.now() - (23 - i) * 3600000).toISOString(),
+        points: 145,
+        velocity: 0,
+      })),
+    }
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => quietCarriedForwardResponse,
+    } as Response)
+
+    renderComponent('/albums/alb-test-123?window=24H')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('zero-activity-callout')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/NO NEW ACTIVITY IN 24H — LAST SEEN/i)).toBeInTheDocument()
+    expect(screen.getByTestId('chart-interval-0')).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining(': 0 engagement')
+    )
+  })
+
   it('toggles window switcher and refetches with new window parameter', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch')
     fetchSpy

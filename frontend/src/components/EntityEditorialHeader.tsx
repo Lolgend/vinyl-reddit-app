@@ -37,7 +37,7 @@ export const EntityEditorialHeader: React.FC<EntityEditorialHeaderProps> = ({
 }) => {
   return (
     <div className="flex flex-col gap-6">
-      {backLinks && <div>{backLinks}</div>}
+      <div>{backLinks}</div>
 
       <div
         className="border-b-[3px] border-[#121212] pb-3 flex flex-wrap items-end justify-between gap-3"

@@ -232,6 +232,29 @@ describe('ReleaseDetail Screen', () => {
         screen.getByRole('heading', { level: 1, name: 'Lull — Standard Pressing' })
       ).toBeInTheDocument()
     })
+
+    // Also verifies whitespace-only variant falls back to Standard Pressing
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ...mockReleaseResponse24H,
+        variant: '   ',
+        specs: {
+          ...mockReleaseResponse24H.specs,
+          variant: '   ',
+        },
+      }),
+    } as Response)
+
+    unmount()
+    renderComponent('/releases/rel-ws-123')
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Lull — Standard Pressing' })
+      ).toBeInTheDocument()
+    })
+    expect(within(screen.getByTestId('card-physical-specs')).getByText('Standard Pressing')).toBeInTheDocument()
   })
 
   it('renders 3-card hero KPI strip with Hype Index, Engagement (no upvote ratio), and Retailer & First Seen', async () => {
@@ -377,6 +400,46 @@ describe('ReleaseDetail Screen', () => {
     })
 
     expect(screen.getByText(/NO NEW ACTIVITY IN 24H/i)).toBeInTheDocument()
+  })
+
+  it('renders zero-activity callout and flat baseline when cumulative_points is carried forward with zero window gain', async () => {
+    const quietCarriedForwardResponse = {
+      ...mockReleaseResponse24H,
+      hero_kpi: {
+        ...mockReleaseResponse24H.hero_kpi,
+        points_gain: 0,
+        submission_engagement: {
+          ...mockReleaseResponse24H.hero_kpi.submission_engagement,
+          points_gain: 0,
+        },
+      },
+      time_series: Array.from({ length: 24 }).map((_, i) => ({
+        bucket_start: new Date(Date.now() - (24 - i) * 3600000).toISOString(),
+        bucket_end: new Date(Date.now() - (23 - i) * 3600000).toISOString(),
+        cumulative_points: 90,
+        velocity_pts_per_hr: 0,
+        timestamp: new Date(Date.now() - (23 - i) * 3600000).toISOString(),
+        points: 90,
+        velocity: 0,
+      })),
+    }
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => quietCarriedForwardResponse,
+    } as Response)
+
+    renderComponent('/releases/rel-test-123?window=24H')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('zero-activity-callout')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText(/NO NEW ACTIVITY IN 24H — LAST SEEN/i)).toBeInTheDocument()
+    expect(screen.getByTestId('chart-interval-0')).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining(': 0 engagement')
+    )
   })
 
   it('renders Source Mentions table with 5 columns, clean votes, View Source links, and zero banned jargon', async () => {

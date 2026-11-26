@@ -2,25 +2,25 @@ import React from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Activity,
   AlertTriangle,
   ArrowLeft,
   Calendar,
   Clock,
   Disc,
-  Flame,
   Layers,
   Store,
   User,
 } from 'lucide-react'
 import {
   ActivityOverTimeChart,
-  type SubmissionMarker,
+  type MentionMarker,
   type TimeSeriesBucket,
 } from '../components/ActivityOverTimeChart'
+import { EntityDetailSkeleton } from '../components/EntityDetailSkeleton'
 import { EntityEditorialHeader, type HypeWindow } from '../components/EntityEditorialHeader'
-import { TierBadge } from '../components/TierBadge'
-import { formatRelativeTime } from '../utils/formatTime'
+import { EngagementKpiCard, HypeIndexKpiCard } from '../components/EntityHeroKpiCards'
+import { formatLastSeenDisplay, formatRelativeTime } from '../utils/formatTime'
+import { DEFAULT_VARIANT_LABEL, formatVariantLabel } from '../utils/formatters'
 
 type WindowType = HypeWindow
 type TierType = 'high' | 'moderate' | 'low'
@@ -89,8 +89,8 @@ interface ReleaseDetailResponse {
     first_seen_at: string | null
     last_seen_at: string | null
   }
-  time_series: TimeSeriesBucket[]
-  submission_markers: SubmissionMarker[]
+  time_series: Array<TimeSeriesBucket & { velocity_pts_per_hr: number }>
+  submission_markers: MentionMarker[]
   submissions: RedditSubmissionProvenance[]
 }
 
@@ -126,36 +126,7 @@ export const ReleaseDetail: React.FC = () => {
   // Loading Skeleton State matching exact container geometries
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6" data-testid="screen-release-detail-loading">
-        <div className="w-48 h-4 bg-[#E5E0DA] rounded animate-pulse" />
-        <div className="border-b-[3px] border-[#121212] pb-3 flex items-end justify-between gap-3">
-          <div className="w-40 h-10 bg-[#E5E0DA] rounded animate-pulse" />
-          <div className="w-36 h-8 bg-[#E5E0DA] rounded-full animate-pulse" />
-        </div>
-        <div className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-6 flex items-center gap-4">
-          <div className="w-[68px] h-[68px] rounded-[6px] bg-[#E5E0DA] border-[1.5px] border-[#121212] animate-pulse shrink-0" />
-          <div className="flex flex-col gap-2">
-            <div className="w-72 h-8 bg-[#E5E0DA] rounded animate-pulse" />
-            <div className="w-56 h-5 bg-[#E5E0DA] rounded animate-pulse" />
-            <div className="w-48 h-6 bg-[#E5E0DA] rounded-full animate-pulse mt-1" />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div
-              key={i}
-              data-testid="hero-kpi-skeleton-card"
-              className="h-28 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-            >
-              <div className="flex justify-between">
-                <div className="w-24 h-3.5 bg-[#E5E0DA] rounded animate-pulse" />
-                <div className="w-12 h-4 bg-[#E5E0DA] rounded animate-pulse" />
-              </div>
-              <div className="w-20 h-7 bg-[#E5E0DA] rounded animate-pulse" />
-              <div className="w-full h-2 bg-[#E5E0DA] rounded animate-pulse" />
-            </div>
-          ))}
-        </div>
+      <EntityDetailSkeleton screenTestId="screen-release-detail-loading" monogramShape="square">
         <div className="grid grid-cols-12 gap-5">
           <div className="col-span-12 lg:col-span-5 h-80 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col justify-between">
             <div className="w-48 h-6 bg-[#E5E0DA] rounded animate-pulse" />
@@ -183,7 +154,7 @@ export const ReleaseDetail: React.FC = () => {
             ))}
           </div>
         </div>
-      </div>
+      </EntityDetailSkeleton>
     )
   }
 
@@ -220,23 +191,19 @@ export const ReleaseDetail: React.FC = () => {
   const hasActivity =
     (hero_kpi.points_gain ?? 0) > 0 ||
     (hero_kpi.submission_engagement?.points_gain ?? 0) > 0 ||
-    time_series.some((b) => b.velocity_pts_per_hr > 0 || b.cumulative_points > 0)
+    time_series.some((b) => b.velocity_pts_per_hr > 0)
 
-  // Format last seen date string
-  const lastSeenDate = specs.last_seen_at
-    ? `${formatRelativeTime(specs.last_seen_at)} (${new Date(specs.last_seen_at).toISOString().split('T')[0]})`
-    : 'NEVER'
+  const lastSeenDate = formatLastSeenDisplay(specs.last_seen_at)
 
   const firstSeenFormatted = specs.first_seen_at
     ? `${new Date(specs.first_seen_at).toISOString().split('T')[0]}`
     : 'UNKNOWN'
 
-  const trimmedVariant = specs.variant?.trim() ?? ''
-  const hasSpecificVariant = Boolean(trimmedVariant) && trimmedVariant !== 'Standard Pressing'
-  const mastheadTitle = hasSpecificVariant
-    ? trimmedVariant
-    : `${specs.album_title} — Standard Pressing`
-  const variantDisplay = hasSpecificVariant ? trimmedVariant : 'Standard Pressing'
+  const variantDisplay = formatVariantLabel(specs.variant)
+  const mastheadTitle =
+    variantDisplay === DEFAULT_VARIANT_LABEL
+      ? `${specs.album_title} — ${DEFAULT_VARIANT_LABEL}`
+      : variantDisplay
   const retailerDisplay = specs.retailer_name?.trim() || 'Wide / Unspecified'
 
   return (
@@ -313,63 +280,14 @@ export const ReleaseDetail: React.FC = () => {
 
       {/* 3-Card Hero KPI Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" data-testid="hero-kpi-strip">
-        {/* Card 1: Hype Index */}
-        <div
-          className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-          data-testid="hero-kpi-hype-index"
-        >
-          <div className="flex items-center justify-between text-[#646464] mb-2">
-            <span className="font-mono text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
-              <Flame className="w-3.5 h-3.5 text-[#121212]" />
-              Hype Index
-            </span>
-            <TierBadge value={hero_kpi.hype_index} tier={hero_kpi.tier} />
-          </div>
-          <div>
-            <div className="font-mono font-bold text-2xl text-[#121212]">
-              {hero_kpi.hype_index}{' '}
-              <span className="text-sm font-normal text-[#646464]">/ 100</span>
-            </div>
-            <div className="w-full bg-[#E5E0DA] h-2 rounded-[2px] mt-2 overflow-hidden border border-[#121212]">
-              <div
-                className={`h-full ${
-                  hero_kpi.tier === 'high'
-                    ? 'bg-[#68D391]'
-                    : hero_kpi.tier === 'moderate'
-                    ? 'bg-[#ECC94B]'
-                    : 'bg-[#646464]'
-                }`}
-                style={{ width: `${hero_kpi.hype_index}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Card 2: Engagement */}
-        <div
-          className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-          data-testid="hero-kpi-engagement"
-        >
-          <div className="flex items-center justify-between text-[#646464] mb-2">
-            <span className="font-mono text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-[#121212]" />
-              Engagement
-            </span>
-          </div>
-          <div>
-            <div className="font-mono font-bold text-2xl text-[#121212]">
-              {hero_kpi.submission_engagement?.total_score ?? hero_kpi.total_score}{' '}
-              <span className="text-sm font-normal text-[#646464]">votes</span>
-            </div>
-            <div className="font-mono text-[11px] text-[#646464] mt-2 truncate">
-              {hero_kpi.submission_engagement?.total_comments ?? hero_kpi.total_comments} comments ·{' '}
-              {hero_kpi.submission_engagement?.submission_count ?? hero_kpi.submission_count}{' '}
-              {(hero_kpi.submission_engagement?.submission_count ?? hero_kpi.submission_count) === 1
-                ? 'mention'
-                : 'mentions'}
-            </div>
-          </div>
-        </div>
+        <HypeIndexKpiCard hypeIndex={hero_kpi.hype_index} tier={hero_kpi.tier} />
+        <EngagementKpiCard
+          totalScore={hero_kpi.submission_engagement?.total_score ?? hero_kpi.total_score}
+          totalComments={hero_kpi.submission_engagement?.total_comments ?? hero_kpi.total_comments}
+          mentionCount={
+            hero_kpi.submission_engagement?.submission_count ?? hero_kpi.submission_count
+          }
+        />
 
         {/* Card 3: Retailer & First Seen */}
         <div
@@ -499,7 +417,7 @@ export const ReleaseDetail: React.FC = () => {
         <ActivityOverTimeChart
           window={window}
           timeSeries={time_series}
-          submissionMarkers={submission_markers}
+          mentionMarkers={submission_markers}
           hasActivity={hasActivity}
           lastSeenDisplay={lastSeenDate}
           subtitle="Community engagement for this pressing."
