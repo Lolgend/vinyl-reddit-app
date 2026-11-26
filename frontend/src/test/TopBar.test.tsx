@@ -398,4 +398,55 @@ describe('TopBar Global Search', () => {
     )
     expect(clearButton).not.toHaveClass('hover:bg-[#27272A]')
   })
+
+  it('renders LAST UPDATED freshness indicator with live relative timestamp, SYNCING, and OFFLINE states without source jargon', async () => {
+    let resolveHealth!: (value: Response) => void
+    const pendingHealth = new Promise<Response>((resolve) => {
+      resolveHealth = resolve
+    })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/v1/health')) {
+          return pendingHealth
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      })
+    )
+
+    const { unmount } = renderTopBar()
+    const freshness = screen.getByTestId('freshness-indicator')
+    expect(freshness).toHaveTextContent('LAST UPDATED:')
+    expect(freshness).toHaveTextContent('SYNCING...')
+    expect(freshness.textContent).not.toMatch(/reddit|r\/vinylreleases|SOURCE:|LAST SNAPSHOT/i)
+
+    resolveHealth({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          status: 'ok',
+          database: 'connected',
+          latest_snapshot_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        }),
+    } as Response)
+
+    await waitFor(() => {
+      expect(freshness).toHaveTextContent(/LAST UPDATED:\s*5m ago/i)
+    })
+    expect(freshness.textContent).not.toMatch(/reddit|r\/vinylreleases|SOURCE:|LAST SNAPSHOT/i)
+    unmount()
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => Promise.resolve({ ok: false } as Response))
+    )
+    renderTopBar()
+    const offlineFreshness = screen.getByTestId('freshness-indicator')
+    await waitFor(() => {
+      expect(offlineFreshness).toHaveTextContent('LAST UPDATED:')
+      expect(offlineFreshness).toHaveTextContent('OFFLINE')
+    })
+    expect(offlineFreshness.textContent).not.toMatch(/reddit|r\/vinylreleases|SOURCE:|LAST SNAPSHOT/i)
+  })
 })
