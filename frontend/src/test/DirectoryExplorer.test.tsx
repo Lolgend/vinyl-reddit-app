@@ -160,17 +160,21 @@ describe('DirectoryExplorer Page', () => {
     )
   }
 
-  it('renders header, live counts on tab buttons, and default releases tab', async () => {
+  it('renders editorial super-header, catalog subtitle, live counts on tab buttons, and default releases tab', async () => {
     renderComponent()
 
     expect(screen.getByText('Directory Explorer')).toBeInTheDocument()
 
-    // Wait for live counts
+    // Wait for live counts and active editorial super-header
     await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('RELEASES (51)')
       expect(screen.getByTestId('tab-releases')).toHaveTextContent('RELEASES (51)')
       expect(screen.getByTestId('tab-albums')).toHaveTextContent('ALBUMS (42)')
       expect(screen.getByTestId('tab-artists')).toHaveTextContent('ARTISTS (38)')
     })
+
+    expect(screen.getByTestId('directory-super-header-bar')).toHaveClass('border-b-[3px]', 'border-[#121212]')
+    expect(screen.getByTestId('directory-catalog-subtitle')).toHaveTextContent(/physical pressings/i)
 
     // Default view is Grid for Releases
     await waitFor(() => {
@@ -191,6 +195,20 @@ describe('DirectoryExplorer Page', () => {
     expect(screen.getByTestId('directory-skeleton')).toBeInTheDocument()
   })
 
+  it('renders 6-column table loading skeleton without Velocity on table tabs', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => new Promise(() => {}))
+    )
+
+    renderComponent(['/directory?tab=albums'])
+
+    const tableSkeleton = screen.getByTestId('table-skeleton')
+    const headers = tableSkeleton.querySelectorAll('th')
+    expect(headers).toHaveLength(6)
+    expect(tableSkeleton).not.toHaveTextContent(/velocity/i)
+  })
+
   it('handles null variant and retailer fallbacks correctly', async () => {
     renderComponent()
 
@@ -203,19 +221,31 @@ describe('DirectoryExplorer Page', () => {
     })
   })
 
-  it('switches between 3-column Card Grid and 7-column Table view on Releases tab', async () => {
+  it('switches between 3-column Card Grid and 6-column Table view on Releases tab without velocity clutter', async () => {
     renderComponent()
 
     await waitFor(() => {
       expect(screen.getByTestId('releases-card-grid')).toBeInTheDocument()
     })
 
+    const gridCard = screen.getByTestId('release-card-rel-1')
+    expect(gridCard).toHaveTextContent('150 votes · 42 comments · 2 mentions')
+    expect(gridCard).not.toHaveTextContent(/pts\/hr/i)
+    expect(gridCard).not.toHaveTextContent(/hype velocity/i)
+
     // Click Table view toggle
     fireEvent.click(screen.getByTestId('view-table'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('releases-table-view')).toBeInTheDocument()
+      const table = screen.getByTestId('releases-table-view')
+      expect(table).toBeInTheDocument()
       expect(screen.queryByTestId('releases-card-grid')).not.toBeInTheDocument()
+      const headers = Array.from(table.querySelectorAll('th')).map((th) => th.textContent)
+      expect(headers).toEqual(['Album & Artist', 'Variant', 'Retailer', 'Hype Index', 'Engagement', 'Action'])
+      expect(screen.getByTestId('release-row-rel-1')).toHaveTextContent('150 votes · 42 comments · 2 mentions')
+      expect(table).not.toHaveTextContent(/pts\/hr/i)
+      expect(table).not.toHaveTextContent(/hype velocity/i)
+      expect(table).not.toHaveTextContent(/submission/i)
     })
 
     // Click back to Grid view
@@ -237,17 +267,37 @@ describe('DirectoryExplorer Page', () => {
     fireEvent.click(screen.getByTestId('tab-albums'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('albums-ledger-table')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ALBUMS (42)')
+      expect(screen.getByTestId('directory-catalog-subtitle')).toHaveTextContent(/grouped album/i)
+      const albumsTable = screen.getByTestId('albums-ledger-table')
+      expect(albumsTable).toBeInTheDocument()
+      const albumHeaders = Array.from(albumsTable.querySelectorAll('th')).map((th) => th.textContent)
+      expect(albumHeaders).toEqual(['Album & Artist', 'Pressings', 'Retailers', 'Engagement', 'Hype Index', 'Action'])
       expect(screen.getByText('Yellow Vinyl')).toBeInTheDocument()
+      expect(screen.getByTestId('album-row-alb-1')).toHaveTextContent('220 votes · 65 comments · 4 mentions')
+      expect(albumsTable).not.toHaveTextContent(/pts\/hr/i)
+      expect(albumsTable).not.toHaveTextContent(/child releases/i)
     })
 
     // Click ARTISTS tab
     fireEvent.click(screen.getByTestId('tab-artists'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('artists-ledger-table')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ARTISTS (38)')
+      expect(screen.getByTestId('directory-catalog-subtitle')).toHaveTextContent(/artist discographies/i)
+      const artistsTable = screen.getByTestId('artists-ledger-table')
+      expect(artistsTable).toBeInTheDocument()
+      const artistHeaders = Array.from(artistsTable.querySelectorAll('th')).map((th) => th.textContent)
+      expect(artistHeaders).toEqual(['Artist', 'Discography', 'Pressings', 'Engagement', 'Hype Index', 'Action'])
       expect(screen.getByText('6 Solo')).toBeInTheDocument()
-      expect(screen.getByText('1 Combined')).toBeInTheDocument()
+      expect(screen.getByText('1 Collaboration')).toBeInTheDocument()
+      expect(screen.getByTestId('artist-row-art-1')).toHaveTextContent('15 Pressings')
+      expect(screen.getByTestId('artist-row-art-1')).toHaveTextContent('850 votes · 310 comments · 22 mentions')
+      expect(artistsTable).not.toHaveTextContent(/1 Combined/i)
+      expect(artistsTable).not.toHaveTextContent(/catalog footprint/i)
+      expect(artistsTable).not.toHaveTextContent(/total releases/i)
+      expect(artistsTable).not.toHaveTextContent(/total submissions/i)
+      expect(artistsTable).not.toHaveTextContent(/pts\/hr/i)
     })
   })
 
@@ -288,18 +338,53 @@ describe('DirectoryExplorer Page', () => {
     })
   })
 
-  it('renders attribution filter pills on Albums tab and filters when clicked', async () => {
+  it('renders Credit filter pills with Collaboration label on Albums tab and preserves attribution query param', async () => {
     renderComponent(['/directory?tab=albums'])
 
     await waitFor(() => {
-      expect(screen.getByTestId('attribution-filter-solo')).toBeInTheDocument()
+      expect(screen.getByText('CREDIT:')).toBeInTheDocument()
+      expect(screen.getByTestId('attribution-filter-solo')).toHaveTextContent('SOLO')
+      expect(screen.getByTestId('attribution-filter-combined')).toHaveTextContent('COLLABORATION')
     })
 
-    fireEvent.click(screen.getByTestId('attribution-filter-solo'))
+    expect(screen.queryByText(/ATTRIBUTION:/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('COMBINED')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('attribution-filter-combined'))
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('attribution=solo')
+        expect.stringContaining('attribution=combined')
+      )
+    })
+  })
+
+  it('renders plain-English sort options without Hype Velocity or Recently Ingested', async () => {
+    renderComponent(['/directory?tab=artists'])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('sort-select')).toBeInTheDocument()
+    })
+
+    const sortSelect = screen.getByTestId('sort-select')
+    const optionTexts = Array.from(sortSelect.querySelectorAll('option')).map((opt) => opt.textContent)
+    expect(optionTexts).toEqual([
+      'Hype Index ↓',
+      'Mentions ↓',
+      'Recently Added ↓',
+      'Albums ↓',
+      'Title / Name A–Z',
+    ])
+    expect(sortSelect).not.toHaveTextContent(/hype velocity/i)
+    expect(sortSelect).not.toHaveTextContent(/submissions/i)
+    expect(sortSelect).not.toHaveTextContent(/recently ingested/i)
+    expect(sortSelect).not.toHaveTextContent(/catalog albums/i)
+
+    fireEvent.change(sortSelect, { target: { value: 'submissions' } })
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('sort=submissions')
       )
     })
   })
@@ -359,7 +444,7 @@ describe('DirectoryExplorer Page', () => {
       })
     )
 
-    renderComponent(['/directory?q=UnknownArtist&tier=high&retailer=Rough%20Trade&attribution=solo'])
+    renderComponent(['/directory?q=UnknownArtist&tier=high&retailer=Rough%20Trade&attribution=combined'])
 
     await waitFor(() => {
       expect(screen.getByTestId('directory-empty-state')).toBeInTheDocument()
@@ -367,7 +452,8 @@ describe('DirectoryExplorer Page', () => {
       expect(screen.getByTestId('filter-pill-query')).toBeInTheDocument()
       expect(screen.getByTestId('filter-pill-tier')).toBeInTheDocument()
       expect(screen.getByTestId('filter-pill-retailer')).toBeInTheDocument()
-      expect(screen.getByTestId('filter-pill-attribution')).toBeInTheDocument()
+      expect(screen.getByTestId('filter-pill-attribution')).toHaveTextContent('Credit: COLLABORATION')
+      expect(screen.getByTestId('filter-pill-attribution')).not.toHaveTextContent(/attribution/i)
       expect(screen.getByTestId('reset-filters-btn')).toBeInTheDocument()
     })
 

@@ -4,12 +4,28 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ArrowRight, ChevronLeft, ChevronRight, LayoutGrid, List, Search, X } from 'lucide-react'
 import { VinylMonogram } from '../components/VinylMonogram'
 import { TierBadge } from '../components/TierBadge'
+import { FOCUS_RING_CLASS } from '../utils/uiClasses'
 
 type DirectoryTab = 'releases' | 'albums' | 'artists'
 type WindowType = '24H' | '7D' | '1M'
 type TierFilter = 'all' | 'high' | 'moderate' | 'low'
 type AttributionFilter = 'all' | 'solo' | 'combined'
 type ViewMode = 'grid' | 'table'
+
+const CATALOG_LEVEL_META: Record<DirectoryTab, { heading: string; subtitle: string }> = {
+  releases: {
+    heading: 'RELEASES',
+    subtitle: 'Individual physical pressings and retailer variants tracked across the catalog.',
+  },
+  albums: {
+    heading: 'ALBUMS',
+    subtitle: 'Grouped albums combining engagement across all physical pressings and retailer variants.',
+  },
+  artists: {
+    heading: 'ARTISTS',
+    subtitle: 'Artist discographies spanning solo albums, collaborations, and physical pressings.',
+  },
+}
 
 interface ReleaseItem {
   release_id: string
@@ -239,9 +255,21 @@ export const DirectoryExplorer: React.FC = () => {
   const albumsCount = countsData?.albums ?? 0
   const artistsCount = countsData?.artists ?? 0
 
+  const tabCounts: Record<DirectoryTab, number> = {
+    releases: releasesCount,
+    albums: albumsCount,
+    artists: artistsCount,
+  }
+  const activeMeta = CATALOG_LEVEL_META[activeTab]
+  const activeCount = tabCounts[activeTab]
+
   const items = tabData?.items ?? []
   const totalItems = tabData?.total_items ?? 0
   const totalPages = tabData?.total_pages ?? 1
+
+  // Helper for plain-English Engagement line
+  const formatEngagement = (score: number, numComments: number, submissionCount: number) =>
+    `${score} votes · ${numComments} comments · ${submissionCount} mentions`
 
   // Helper for tier progress bar
   const renderTierBar = (hypeIndex: number, tier: 'high' | 'moderate' | 'low') => {
@@ -260,53 +288,54 @@ export const DirectoryExplorer: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-6" data-testid="screen-directory-explorer">
-      {/* Header */}
-      <div>
-        <h1 className="font-grotesk font-bold text-2xl text-[#121212] tracking-tight">
-          Directory Explorer
-        </h1>
-        <p className="font-sans text-sm text-[#646464] mt-1">
-          Browse indexed catalog across Releases, Albums, and Artists with live demand intelligence.
+      {/* Monochrome Editorial Super-Header */}
+      <div className="flex flex-col gap-3">
+        <div
+          className="border-b-[3px] border-[#121212] pb-3 flex flex-col sm:flex-row sm:items-end justify-between gap-3"
+          data-testid="directory-super-header-bar"
+        >
+          <div>
+            <div className="font-mono text-[11px] uppercase tracking-widest text-[#646464] font-semibold">
+              Directory Explorer
+            </div>
+            <h1 className="font-grotesk font-bold text-4xl sm:text-5xl uppercase tracking-tight text-[#121212] leading-none mt-1">
+              {activeMeta.heading}{' '}
+              <span className="font-mono text-lg text-[#646464] font-normal">
+                ({activeCount})
+              </span>
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto">
+            {(['releases', 'albums', 'artists'] as const).map((tabKey) => {
+              const isSelected = activeTab === tabKey
+              return (
+                <button
+                  key={tabKey}
+                  type="button"
+                  onClick={() => handleTabChange(tabKey)}
+                  aria-pressed={isSelected}
+                  className={`px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-wider uppercase transition-transform flex items-center gap-2 shrink-0 border-[1.5px] border-[#121212] cursor-pointer ${FOCUS_RING_CLASS} ${
+                    isSelected
+                      ? 'bg-[#121212] text-white shadow-brutal-sm'
+                      : 'bg-white text-[#121212] hover:bg-[#FAF7F5]'
+                  }`}
+                  data-testid={`tab-${tabKey}`}
+                >
+                  {CATALOG_LEVEL_META[tabKey].heading}{' '}
+                  <span className="opacity-80 font-normal">({tabCounts[tabKey]})</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <p
+          className="font-sans text-xs text-[#646464]"
+          data-testid="directory-catalog-subtitle"
+        >
+          {activeMeta.subtitle}
         </p>
-      </div>
-
-      {/* Segmented Tab Switcher with Live Entity Counts */}
-      <div className="flex items-center gap-2 border-b-[1.5px] border-[#121212] pb-3 overflow-x-auto">
-        <button
-          onClick={() => handleTabChange('releases')}
-          className={`px-4 py-2 rounded-[9999px] text-xs font-mono font-bold tracking-wider uppercase transition-transform flex items-center gap-2 shrink-0 ${
-            activeTab === 'releases'
-              ? 'bg-[#121212] text-white border-[1.5px] border-[#121212] shadow-brutal-sm'
-              : 'bg-white text-[#121212] border-[1.5px] border-[#121212] hover:bg-[#FAF7F5]'
-          }`}
-          data-testid="tab-releases"
-        >
-          RELEASES <span className="opacity-80 font-normal">({releasesCount})</span>
-        </button>
-
-        <button
-          onClick={() => handleTabChange('albums')}
-          className={`px-4 py-2 rounded-[9999px] text-xs font-mono font-bold tracking-wider uppercase transition-transform flex items-center gap-2 shrink-0 ${
-            activeTab === 'albums'
-              ? 'bg-[#121212] text-white border-[1.5px] border-[#121212] shadow-brutal-sm'
-              : 'bg-white text-[#121212] border-[1.5px] border-[#121212] hover:bg-[#FAF7F5]'
-          }`}
-          data-testid="tab-albums"
-        >
-          ALBUMS <span className="opacity-80 font-normal">({albumsCount})</span>
-        </button>
-
-        <button
-          onClick={() => handleTabChange('artists')}
-          className={`px-4 py-2 rounded-[9999px] text-xs font-mono font-bold tracking-wider uppercase transition-transform flex items-center gap-2 shrink-0 ${
-            activeTab === 'artists'
-              ? 'bg-[#121212] text-white border-[1.5px] border-[#121212] shadow-brutal-sm'
-              : 'bg-white text-[#121212] border-[1.5px] border-[#121212] hover:bg-[#FAF7F5]'
-          }`}
-          data-testid="tab-artists"
-        >
-          ARTISTS <span className="opacity-80 font-normal">({artistsCount})</span>
-        </button>
       </div>
 
       {/* Shared Command & Filter Card */}
@@ -459,55 +488,39 @@ export const DirectoryExplorer: React.FC = () => {
               data-testid="sort-select"
             >
               <option value="hype_index">Hype Index ↓</option>
-              <option value="hype_velocity">Hype Velocity ↓</option>
-              <option value="submissions">Submissions ↓</option>
-              <option value="created_at">Recently Ingested ↓</option>
+              <option value="submissions">Mentions ↓</option>
+              <option value="created_at">Recently Added ↓</option>
               {activeTab === 'albums' && <option value="release_count">Pressing Count ↓</option>}
-              {activeTab === 'artists' && <option value="album_count">Catalog Albums ↓</option>}
+              {activeTab === 'artists' && <option value="album_count">Albums ↓</option>}
               <option value="title">Title / Name A–Z</option>
             </select>
           </div>
         </div>
 
-        {/* Attribution Filter Pills (Albums & Artists tabs only) */}
+        {/* Credit Filter Pills (Albums & Artists tabs only; preserves ?attribution= query param) */}
         {(activeTab === 'albums' || activeTab === 'artists') && (
           <div className="flex items-center gap-1.5 flex-wrap border-t border-[#E5E0DA] pt-3">
             <span className="font-mono text-[11px] font-semibold text-[#646464] uppercase mr-1">
-              ATTRIBUTION:
+              CREDIT:
             </span>
-            <button
-              onClick={() => handleAttributionChange('all')}
-              className={`px-3 py-1 rounded-[9999px] text-xs font-mono font-bold transition-all ${
-                activeAttribution === 'all'
-                  ? 'bg-[#121212] text-white border-[1.5px] border-[#121212] shadow-brutal-sm'
-                  : 'bg-white text-[#121212] border-[1.5px] border-[#121212] hover:bg-[#FAF7F5]'
-              }`}
-              data-testid="attribution-filter-all"
-            >
-              ALL
-            </button>
-            <button
-              onClick={() => handleAttributionChange('solo')}
-              className={`px-3 py-1 rounded-[9999px] text-xs font-mono font-bold transition-all ${
-                activeAttribution === 'solo'
-                  ? 'bg-[#121212] text-white border-[1.5px] border-[#121212] shadow-brutal-sm'
-                  : 'bg-white text-[#121212] border-[1.5px] border-[#121212] hover:bg-[#FAF7F5]'
-              }`}
-              data-testid="attribution-filter-solo"
-            >
-              SOLO
-            </button>
-            <button
-              onClick={() => handleAttributionChange('combined')}
-              className={`px-3 py-1 rounded-[9999px] text-xs font-mono font-bold transition-all ${
-                activeAttribution === 'combined'
-                  ? 'bg-[#121212] text-white border-[1.5px] border-[#121212] shadow-brutal-sm'
-                  : 'bg-white text-[#121212] border-[1.5px] border-[#121212] hover:bg-[#FAF7F5]'
-              }`}
-              data-testid="attribution-filter-combined"
-            >
-              COMBINED
-            </button>
+            {([
+              { value: 'all', label: 'ALL' },
+              { value: 'solo', label: 'SOLO' },
+              { value: 'combined', label: 'COLLABORATION' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => handleAttributionChange(opt.value)}
+                className={`px-3 py-1 rounded-[9999px] text-xs font-mono font-bold transition-all ${
+                  activeAttribution === opt.value
+                    ? 'bg-[#121212] text-white border-[1.5px] border-[#121212] shadow-brutal-sm'
+                    : 'bg-white text-[#121212] border-[1.5px] border-[#121212] hover:bg-[#FAF7F5]'
+                }`}
+                data-testid={`attribution-filter-${opt.value}`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
         )}
 
@@ -618,11 +631,10 @@ export const DirectoryExplorer: React.FC = () => {
                 <thead>
                   <tr className="bg-[#F7F3F0] border-b-[1.5px] border-[#121212] font-mono text-[11px] font-bold text-[#121212] uppercase tracking-wider">
                     <th className="py-3 px-4">Item & Artist</th>
-                    <th className="py-3 px-4">Spec / Footprint</th>
-                    <th className="py-3 px-4">Distributor</th>
+                    <th className="py-3 px-4">Variant / Discography</th>
+                    <th className="py-3 px-4">Retailer</th>
                     <th className="py-3 px-4 w-36">Hype Index</th>
-                    <th className="py-3 px-4">Velocity</th>
-                    <th className="py-3 px-4">Metrics</th>
+                    <th className="py-3 px-4">Engagement</th>
                     <th className="py-3 px-4 text-right">Action</th>
                   </tr>
                 </thead>
@@ -641,7 +653,6 @@ export const DirectoryExplorer: React.FC = () => {
                       <td className="py-3 px-4"><div className="w-24 h-5 bg-[#E5E0DA] rounded animate-pulse" /></td>
                       <td className="py-3 px-4"><div className="w-20 h-4 bg-[#E5E0DA] rounded animate-pulse" /></td>
                       <td className="py-3 px-4"><div className="w-24 h-4 bg-[#E5E0DA] rounded animate-pulse" /></td>
-                      <td className="py-3 px-4"><div className="w-16 h-4 bg-[#E5E0DA] rounded animate-pulse" /></td>
                       <td className="py-3 px-4"><div className="w-28 h-4 bg-[#E5E0DA] rounded animate-pulse" /></td>
                       <td className="py-3 px-4 text-right"><div className="w-20 h-6 bg-[#E5E0DA] rounded border border-[#121212] ml-auto animate-pulse" /></td>
                     </tr>
@@ -678,7 +689,7 @@ export const DirectoryExplorer: React.FC = () => {
             )}
             {activeAttribution !== 'all' && (
               <span className="inline-block bg-[#F7F3F0] border border-[#121212] px-2.5 py-0.5 rounded font-mono text-xs text-[#121212]" data-testid="filter-pill-attribution">
-                Attribution: {activeAttribution.toUpperCase()}
+                Credit: {activeAttribution === 'combined' ? 'COLLABORATION' : activeAttribution.toUpperCase()}
               </span>
             )}
             {!urlQuery && activeTier === 'all' && activeAttribution === 'all' && !activeRetailer && (
@@ -770,15 +781,9 @@ export const DirectoryExplorer: React.FC = () => {
 
                           {/* Metrics block */}
                           <div className="bg-[#FAF7F5] border border-[#E5E0DA] rounded-[4px] p-3 mb-4">
-                            <div className="flex items-center justify-between font-mono text-xs">
-                              <span className="text-[#646464] font-semibold">HYPE VELOCITY</span>
-                              <span className="font-bold text-[#121212]">
-                                +{rel.hype_velocity} pts/hr
-                              </span>
-                            </div>
                             {renderTierBar(rel.hype_index, rel.tier)}
                             <div className="font-mono text-[11px] text-[#646464] mt-2">
-                              {rel.score} pts · {rel.num_comments} comments · {rel.submission_count} submissions
+                              {formatEngagement(rel.score, rel.num_comments, rel.submission_count)}
                             </div>
                           </div>
                         </div>
@@ -804,7 +809,7 @@ export const DirectoryExplorer: React.FC = () => {
                   })}
                 </div>
               ) : (
-                /* 7-Column Table View */
+                /* 6-Column Table View */
                 <div
                   className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md overflow-x-auto"
                   data-testid="releases-table-view"
@@ -812,12 +817,11 @@ export const DirectoryExplorer: React.FC = () => {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-[#F7F3F0] border-b-[1.5px] border-[#121212] font-mono text-[11px] font-bold text-[#121212] uppercase tracking-wider">
-                        <th className="py-3 px-4">Combined Artist & Album</th>
+                        <th className="py-3 px-4">Album & Artist</th>
                         <th className="py-3 px-4">Variant</th>
                         <th className="py-3 px-4">Retailer</th>
                         <th className="py-3 px-4 w-36">Hype Index</th>
-                        <th className="py-3 px-4">Hype Velocity</th>
-                        <th className="py-3 px-4">Submission Metrics</th>
+                        <th className="py-3 px-4">Engagement</th>
                         <th className="py-3 px-4 text-right">Action</th>
                       </tr>
                     </thead>
@@ -868,11 +872,8 @@ export const DirectoryExplorer: React.FC = () => {
                                 {renderTierBar(rel.hype_index, rel.tier)}
                               </div>
                             </td>
-                            <td className="py-3 px-4 font-mono font-bold text-[#121212]">
-                              +{rel.hype_velocity} pts/hr
-                            </td>
                             <td className="py-3 px-4 font-mono text-[#646464]">
-                              {rel.score} pts · {rel.num_comments} cmts · {rel.submission_count} submissions
+                              {formatEngagement(rel.score, rel.num_comments, rel.submission_count)}
                             </td>
                             <td className="py-3 px-4 text-right">
                               <Link
@@ -892,7 +893,7 @@ export const DirectoryExplorer: React.FC = () => {
             </>
           )}
 
-          {/* TAB 2: ALBUMS (7-Column Ledger) */}
+          {/* TAB 2: ALBUMS (6-Column Ledger) */}
           {activeTab === 'albums' && (
             <div
               className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md overflow-x-auto"
@@ -901,11 +902,10 @@ export const DirectoryExplorer: React.FC = () => {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-[#F7F3F0] border-b-[1.5px] border-[#121212] font-mono text-[11px] font-bold text-[#121212] uppercase tracking-wider">
-                    <th className="py-3 px-4">Album & Combined Artist</th>
-                    <th className="py-3 px-4">Child Releases</th>
+                    <th className="py-3 px-4">Album & Artist</th>
+                    <th className="py-3 px-4">Pressings</th>
                     <th className="py-3 px-4">Retailers</th>
-                    <th className="py-3 px-4">Submissions</th>
-                    <th className="py-3 px-4">Hype Velocity</th>
+                    <th className="py-3 px-4">Engagement</th>
                     <th className="py-3 px-4 w-36">Hype Index</th>
                     <th className="py-3 px-4 text-right">Action</th>
                   </tr>
@@ -972,10 +972,7 @@ export const DirectoryExplorer: React.FC = () => {
                         )}
                       </td>
                       <td className="py-3 px-4 font-mono text-[#646464]">
-                        {alb.score} pts · {alb.num_comments} cmts · {alb.submission_count} submissions
-                      </td>
-                      <td className="py-3 px-4 font-mono font-bold text-[#121212]">
-                        +{alb.hype_velocity} pts/hr
+                        {formatEngagement(alb.score, alb.num_comments, alb.submission_count)}
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex flex-col">
@@ -998,7 +995,7 @@ export const DirectoryExplorer: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 3: ARTISTS (7-Column Ledger) */}
+          {/* TAB 3: ARTISTS (6-Column Ledger) */}
           {activeTab === 'artists' && (
             <div
               className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md overflow-x-auto"
@@ -1008,10 +1005,9 @@ export const DirectoryExplorer: React.FC = () => {
                 <thead>
                   <tr className="bg-[#F7F3F0] border-b-[1.5px] border-[#121212] font-mono text-[11px] font-bold text-[#121212] uppercase tracking-wider">
                     <th className="py-3 px-4">Artist</th>
-                    <th className="py-3 px-4">Catalog Footprint</th>
-                    <th className="py-3 px-4">Total Releases</th>
-                    <th className="py-3 px-4">Total Submissions</th>
-                    <th className="py-3 px-4">Hype Velocity</th>
+                    <th className="py-3 px-4">Discography</th>
+                    <th className="py-3 px-4">Pressings</th>
+                    <th className="py-3 px-4">Engagement</th>
                     <th className="py-3 px-4 w-36">Hype Index</th>
                     <th className="py-3 px-4 text-right">Action</th>
                   </tr>
@@ -1045,7 +1041,7 @@ export const DirectoryExplorer: React.FC = () => {
                           </span>
                           <span className="text-[#646464]">·</span>
                           <span className="px-2 py-0.5 rounded-[4px] border border-[#121212] bg-white text-[#646464]">
-                            {art.combined_album_count} Combined
+                            {art.combined_album_count} Collaboration
                           </span>
                         </div>
                       </td>
@@ -1053,13 +1049,10 @@ export const DirectoryExplorer: React.FC = () => {
                         {art.release_count} {art.release_count === 1 ? 'Pressing' : 'Pressings'}
                       </td>
                       <td className="py-3 px-4 font-mono text-[#646464]">
-                        {art.score} pts · {art.num_comments} cmts · {art.submission_count} submissions
-                      </td>
-                      <td className="py-3 px-4 font-mono font-bold text-[#121212]">
-                        +{art.hype_velocity} pts/hr
+                        {formatEngagement(art.score, art.num_comments, art.submission_count)}
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex items-col">
+                        <div className="flex flex-col">
                           <TierBadge value={art.hype_index} tier={art.tier} />
                           {renderTierBar(art.hype_index, art.tier)}
                         </div>
