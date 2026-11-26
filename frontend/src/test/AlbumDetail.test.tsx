@@ -146,14 +146,16 @@ describe('AlbumDetail Screen', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders loading skeleton when fetching', () => {
+  it('renders loading skeleton with 3 KPI skeleton cards when fetching', () => {
     vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
     renderComponent()
 
-    expect(screen.getByTestId('screen-album-detail-loading')).toBeInTheDocument()
+    const skeleton = screen.getByTestId('screen-album-detail-loading')
+    expect(skeleton).toBeInTheDocument()
+    expect(within(skeleton).getAllByTestId('hero-kpi-skeleton-card')).toHaveLength(3)
   })
 
-  it('renders header, title, combined artist, and Last Seen provenance chip', async () => {
+  it('renders editorial ALBUM super-header, monochrome masthead with square monogram, artist chips, and Last Seen', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockAlbumResponse24H,
@@ -162,9 +164,16 @@ describe('AlbumDetail Screen', () => {
     renderComponent()
 
     await waitFor(() => {
-      expect(screen.getByText('Lull')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 1, name: 'Lull' })).toBeInTheDocument()
     })
 
+    const superHeader = screen.getByTestId('entity-super-header')
+    expect(superHeader).toHaveTextContent('ALBUM')
+    expect(superHeader).toHaveClass('border-b-[3px]')
+    expect(superHeader.textContent).not.toContain('/')
+
+    expect(screen.getByRole('button', { name: '24H' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('vinyl-monogram')).toHaveClass('rounded-[6px]')
     expect(screen.getAllByText('The Smashing Pumpkins').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByTestId('artist-chip-art-1')).toBeInTheDocument()
     expect(screen.getByTestId('artist-chip-art-1')).toHaveAttribute('href', '/artists/art-1?window=24H')
@@ -172,7 +181,7 @@ describe('AlbumDetail Screen', () => {
     expect(screen.getByText(/Back to Directory/i)).toBeInTheDocument()
   })
 
-  it('renders 4-cell hero KPI strip with correct metrics and tiers', async () => {
+  it('renders 3-card hero KPI strip with Hype Index, Engagement, and Pressings', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockAlbumResponse24H,
@@ -184,23 +193,29 @@ describe('AlbumDetail Screen', () => {
       expect(screen.getByTestId('hero-kpi-hype-index')).toBeInTheDocument()
     })
 
+    const kpiStrip = screen.getByTestId('hero-kpi-strip')
+    expect(kpiStrip.children).toHaveLength(3)
+
     const hypeIndexCard = screen.getByTestId('hero-kpi-hype-index')
     expect(hypeIndexCard).toHaveTextContent('84')
     expect(hypeIndexCard).toHaveTextContent(/HIGH/i)
 
-    const velocityCard = screen.getByTestId('hero-kpi-hype-velocity')
-    expect(velocityCard).toHaveTextContent('+12.5 pts/hr')
+    const engagementCard = screen.getByTestId('hero-kpi-engagement')
+    expect(engagementCard).toHaveTextContent('Engagement')
+    expect(engagementCard).toHaveTextContent('95 votes')
+    expect(engagementCard).toHaveTextContent('25 comments · 2 mentions')
 
-    const redditCard = screen.getByTestId('hero-kpi-reddit-demand')
-    expect(redditCard).toHaveTextContent('+45')
-    expect(redditCard).toHaveTextContent('95 upvotes')
+    const pressingsCard = screen.getByTestId('hero-kpi-pressings')
+    expect(pressingsCard).toHaveTextContent('Pressings')
+    expect(pressingsCard).toHaveTextContent('2 Pressings')
+    expect(pressingsCard).toHaveTextContent(/Last seen/i)
 
-    const provCard = screen.getByTestId('hero-kpi-provenance')
-    expect(provCard).toHaveTextContent('2 Pressings')
-    expect(provCard).toHaveTextContent('2 Submissions')
+    expect(screen.queryByTestId('hero-kpi-hype-velocity')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('hero-kpi-reddit-demand')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('hero-kpi-provenance')).not.toBeInTheDocument()
   })
 
-  it('renders stepped LOCF chart and submission event markers', async () => {
+  it('renders Activity Over Time chart with cumulative curve, readable ticks, interactive tooltip, and non-overlapping mention markers', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockAlbumResponse24H,
@@ -209,15 +224,80 @@ describe('AlbumDetail Screen', () => {
     renderComponent()
 
     await waitFor(() => {
-      expect(screen.getByTestId('chart-stepped-locf')).toBeInTheDocument()
+      expect(screen.getByTestId('activity-over-time-chart')).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/Stepped Engagement & Velocity Curve/i)).toBeInTheDocument()
-    // Event marker title exists in DOM/tooltip
-    expect(screen.getAllByText(/Pre-Order/i).length).toBeGreaterThan(0)
+    const chart = screen.getByTestId('activity-over-time-chart')
+    expect(within(chart).getByText('Activity Over Time')).toBeInTheDocument()
+    expect(
+      within(chart).getByText(/Combined engagement across all pressings of this album\./i)
+    ).toBeInTheDocument()
+    expect(within(chart).getByText('Engagement')).toBeInTheDocument()
+    expect(within(chart).getByText('NOW')).toBeInTheDocument()
+
+    // Readable local clock ticks for 24H (e.g. "6 PM", "12 AM")
+    const xTicks = within(chart).getAllByTestId(/^x-axis-tick-/)
+    expect(xTicks.length).toBeGreaterThanOrEqual(3)
+    expect(xTicks.some((el) => /\b(1[0-2]|[1-9])\s?(AM|PM)\b/i.test(el.textContent || ''))).toBe(true)
+
+    // No velocity bars
+    expect(chart.querySelectorAll('[data-velocity-bar]')).toHaveLength(0)
+
+    // Mention marker title is NOT rendered as colliding inline SVG text by default
+    const svg = chart.querySelector('svg')
+    expect(svg).not.toBeNull()
+    const svgTexts = Array.from(svg!.querySelectorAll('text')).map((t) => t.textContent || '')
+    expect(svgTexts.some((txt) => txt.includes('Pre-Order'))).toBe(false)
+
+    // Hover & keyboard focus interval tooltip
+    const interval10 = screen.getByTestId('chart-interval-10')
+    fireEvent.mouseEnter(interval10)
+    const tooltip = screen.getByTestId('chart-tooltip')
+    expect(tooltip).toHaveTextContent('50')
+    fireEvent.mouseLeave(interval10)
+    expect(screen.queryByTestId('chart-tooltip')).not.toBeInTheDocument()
+
+    const interval12 = screen.getByTestId('chart-interval-12')
+    fireEvent.focus(interval12)
+    expect(screen.getByTestId('chart-tooltip')).toHaveTextContent('60')
+    fireEvent.blur(interval12)
+    expect(screen.queryByTestId('chart-tooltip')).not.toBeInTheDocument()
+
+    // Hover/focus Mention marker reveals full mention title cleanly
+    const marker0 = screen.getByTestId('mention-marker-0')
+    fireEvent.mouseEnter(marker0)
+    expect(screen.getByTestId('mention-marker-tooltip')).toHaveTextContent(
+      '[Pre-Order] The Smashing Pumpkins - Lull (Reissue)'
+    )
+    fireEvent.mouseLeave(marker0)
+    expect(screen.queryByTestId('mention-marker-tooltip')).not.toBeInTheDocument()
   })
 
-  it('renders child-release share of demand card with variant fallbacks', async () => {
+  it('formats X-axis ticks as short month/day dates for 7D window', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockAlbumResponse7D,
+    } as Response)
+
+    renderComponent('/albums/alb-test-123?window=7D')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('activity-over-time-chart')).toBeInTheDocument()
+    })
+
+    const chart = screen.getByTestId('activity-over-time-chart')
+    const xTicks = within(chart).getAllByTestId(/^x-axis-tick-/)
+    expect(
+      xTicks.some((el) =>
+        /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\b/.test(
+          el.textContent || ''
+        )
+      )
+    ).toBe(true)
+    expect(within(chart).getByText('NOW')).toBeInTheDocument()
+  })
+
+  it('renders plain-English Share of Demand card with variant fallbacks and no normalization footnote', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockAlbumResponse24H,
@@ -238,9 +318,12 @@ describe('AlbumDetail Screen', () => {
     expect(within(card).getByText('35%')).toBeInTheDocument()
     // Fallback for null retailer
     expect(within(card).getByText('Wide / Unspecified')).toBeInTheDocument()
+
+    expect(card).not.toHaveTextContent(/collector variant conviction/i)
+    expect(card).not.toHaveTextContent(/Shares normalize to 100\.0%/i)
   })
 
-  it('renders 7-column child releases matrix with action link preserving window query', async () => {
+  it('renders 6-column All Pressings table without Hype Velocity and with Engagement breakdown', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockAlbumResponse24H,
@@ -249,15 +332,64 @@ describe('AlbumDetail Screen', () => {
     renderComponent('/albums/alb-test-123?window=24H')
 
     await waitFor(() => {
-      expect(screen.getByTestId('table-child-releases')).toBeInTheDocument()
+      expect(screen.getByTestId('table-all-pressings')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('2 Recorded Variants')).toBeInTheDocument()
+    const tableCard = screen.getByTestId('table-all-pressings')
+    expect(within(tableCard).getByText('All Pressings')).toBeInTheDocument()
+    expect(within(tableCard).getByText('2 Pressings')).toBeInTheDocument()
 
-    const viewLinks = screen.getAllByRole('link', { name: /View Release →/i })
+    const headers = within(tableCard)
+      .getAllByRole('columnheader')
+      .map((th) => th.textContent?.trim())
+    expect(headers).toEqual([
+      'Variant',
+      'Retailer',
+      'Share of Demand',
+      'Hype Index',
+      'Engagement',
+      'Action',
+    ])
+
+    expect(tableCard).toHaveTextContent('1 mention · 60 votes · 15 comments')
+    expect(tableCard).toHaveTextContent('1 mention · 35 votes · 10 comments')
+    expect(tableCard).not.toHaveTextContent(/Hype Velocity|pts\/hr|provenance|Child Releases/i)
+
+    const viewLinks = within(tableCard).getAllByRole('link', { name: /View Release →/i })
     expect(viewLinks.length).toBe(2)
     expect(viewLinks[0]).toHaveAttribute('href', '/releases/rel-1?window=24H')
     expect(viewLinks[1]).toHaveAttribute('href', '/releases/rel-2?window=24H')
+  })
+
+  it('renders zero banned jargon strings across the entire Album Detail screen', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockAlbumResponse24H,
+    } as Response)
+
+    renderComponent()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('screen-album-detail')).toBeInTheDocument()
+    })
+
+    const fullText = screen.getByTestId('screen-album-detail').textContent || ''
+    const bannedPatterns = [
+      /\bReddit\b/i,
+      /r\/vinylreleases/i,
+      /pts\/hr/i,
+      /\bLOCF\b/i,
+      /\bBuckets\b/i,
+      /\bProvenance\b/i,
+      /E = score/i,
+      /Child Releases/i,
+      /Shares normalize to 100\.0%/i,
+      /\bHype Velocity\b/i,
+      /\bSubmissions\b/i,
+    ]
+    for (const pattern of bannedPatterns) {
+      expect(fullText).not.toMatch(pattern)
+    }
   })
 
   it('renders zero-activity callout banner when window engagement is zero', async () => {
