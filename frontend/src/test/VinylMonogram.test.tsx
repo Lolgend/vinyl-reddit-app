@@ -24,7 +24,23 @@ describe('VinylMonogram', () => {
 
   it('renders monogram with SVG grooves and initials', () => {
     render(<VinylMonogram name="Random Access Memories" entityId="daft-punk-ram" size={48} />)
-    expect(screen.getByTestId('vinyl-monogram')).toBeInTheDocument()
+    const monogram = screen.getByTestId('vinyl-monogram')
+    expect(monogram).toBeInTheDocument()
+    expect(monogram).toHaveClass('rounded-full')
     expect(screen.getByText('RA')).toBeInTheDocument()
+  })
+
+  it('supports square sleeve framing when shape="square"', () => {
+    render(
+      <VinylMonogram
+        name="Random Access Memories"
+        entityId="daft-punk-ram"
+        size={68}
+        shape="square"
+      />
+    )
+    const monogram = screen.getByTestId('vinyl-monogram')
+    expect(monogram).toHaveClass('rounded-[6px]')
+    expect(monogram).not.toHaveClass('rounded-full')
   })
 })
