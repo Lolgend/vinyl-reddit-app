@@ -5,6 +5,7 @@ interface VinylMonogramProps {
   name: string
   entityId?: string
   size?: number
+  shape?: 'circle' | 'square'
   className?: string
 }
 
@@ -12,14 +13,16 @@ export const VinylMonogram: React.FC<VinylMonogramProps> = ({
   name,
   entityId,
   size = 40,
+  shape = 'circle',
   className = '',
 }) => {
   const initials = getInitials(name)
   const swatchBg = getSwatchColor(entityId || name)
+  const radiusClass = shape === 'square' ? 'rounded-[6px]' : 'rounded-full'
 
   return (
     <div
-      className={`relative inline-flex items-center justify-center rounded-full border-[1.5px] border-[#121212] overflow-hidden select-none shrink-0 ${className}`}
+      className={`relative inline-flex items-center justify-center ${radiusClass} border-[1.5px] border-[#121212] overflow-hidden select-none shrink-0 ${className}`}
       style={{
         width: size,
         height: size,

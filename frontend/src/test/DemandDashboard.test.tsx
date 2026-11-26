@@ -232,7 +232,7 @@ describe('DemandDashboard Page', () => {
     )
   }
 
-  it('renders the 3 leaderboard cards and live feed', async () => {
+  it('renders the 3 leaderboard cards and live feed with source-agnostic subtitles', async () => {
     renderDashboard()
 
     await waitFor(() => {
@@ -243,8 +243,17 @@ describe('DemandDashboard Page', () => {
     expect(screen.getByText('Top Releases')).toBeDefined()
     expect(screen.getByText('Newly Added Releases')).toBeDefined()
     expect(screen.getByText('Live Release Feed')).toBeDefined()
-    expect(screen.getByText(/7 Submissions/i)).toBeInTheDocument()
-    expect(screen.getByText(/95 pts/i)).toBeInTheDocument()
+    expect(screen.getByText(/7 Mentions/i)).toBeInTheDocument()
+    expect(screen.queryByText(/95 pts/i)).not.toBeInTheDocument()
+
+    const headerSubtitle = screen.getByRole('heading', { level: 1, name: 'Demand Dashboard' }).nextElementSibling
+    expect(headerSubtitle?.textContent).not.toMatch(/reddit|r\/vinylreleases|velocity|submission/i)
+    expect(headerSubtitle?.textContent).toMatch(/Hype Index/i)
+
+    const feedHeading = screen.getByRole('heading', { level: 2, name: 'Live Release Feed' })
+    const feedSubtitle = feedHeading.parentElement?.nextElementSibling
+    expect(feedSubtitle?.textContent).not.toMatch(/reddit|r\/vinylreleases|velocity/i)
+    expect(feedSubtitle?.textContent).toMatch(/engagement/i)
   })
 
   it('uses adaptive xl 3-column grid, consolidated h2 headings, and complete leaderboard attribution', async () => {
@@ -271,13 +280,13 @@ describe('DemandDashboard Page', () => {
     expect(screen.queryByText('Top 5 Pressings')).not.toBeInTheDocument()
     expect(screen.queryByText('Last 24 Hours')).not.toBeInTheDocument()
 
-    // Top Albums attribution: Line 1 Combined Artist — Album, Line 2 Submissions · Releases
+    // Top Albums attribution: Line 1 Combined Artist — Album, Line 2 Mentions · Releases
     expect(within(albumCard).getByRole('link', { name: 'Radiohead — In Rainbows' })).toBeInTheDocument()
-    expect(within(albumCard).getByText('7 Submissions · 3 Releases')).toBeInTheDocument()
+    expect(within(albumCard).getByText('7 Mentions · 3 Releases')).toBeInTheDocument()
     expect(
       within(albumCard).getByRole('link', { name: 'The Smashing Pumpkins — Siamese Dream' })
     ).toBeInTheDocument()
-    expect(within(albumCard).getByText('4 Submissions · 2 Releases')).toBeInTheDocument()
+    expect(within(albumCard).getByText('4 Mentions · 2 Releases')).toBeInTheDocument()
 
     // Top Releases attribution: Line 1 Combined Artist — Album, Line 2 Variant · Retailer with fallbacks
     expect(within(releaseCard).getByRole('link', { name: 'Radiohead — In Rainbows' })).toBeInTheDocument()
@@ -287,12 +296,28 @@ describe('DemandDashboard Page', () => {
     ).toBeInTheDocument()
     expect(within(releaseCard).getByText('Standard Pressing · Wide / Unspecified')).toBeInTheDocument()
 
-    // Newly Added Releases attribution: Line 1 Combined Artist — Album, Line 2 Variant · Retailer + velocity/score
+    // Newly Added Releases attribution: Line 1 Combined Artist — Album, Line 2 Variant · Retailer
     expect(
       within(newlyCard).getByRole('link', { name: 'My Bloody Valentine — Loveless' })
     ).toBeInTheDocument()
     expect(within(newlyCard).getByText('Standard Black · Domino')).toBeInTheDocument()
-    expect(within(newlyCard).getByText('+12 pts/hr · 95 pts')).toBeInTheDocument()
+    expect(within(newlyCard).queryByText(/pts/i)).not.toBeInTheDocument()
+
+    // All three leaderboard cards share identical uniform-width w-24 TierBadge + Hype Index progress bar without pts/hr
+    for (const [card, badgeTestId, expectedWidth] of [
+      [albumCard, 'tier-badge-high', '92%'],
+      [releaseCard, 'tier-badge-high', '92%'],
+      [newlyCard, 'tier-badge-high', '80%'],
+    ] as const) {
+      expect(within(card).queryByText(/pts\/hr/i)).not.toBeInTheDocument()
+      const badge = within(card).getAllByTestId(badgeTestId)[0]
+      const meterCol = badge.parentElement
+      expect(meterCol).toHaveClass('flex', 'flex-col', 'items-end', 'shrink-0', 'w-24')
+      const progressTrack = meterCol?.querySelector('.bg-accent-sand')
+      expect(progressTrack).toBeInTheDocument()
+      const progressFill = progressTrack?.firstElementChild as HTMLElement | null
+      expect(progressFill).toHaveStyle({ width: expectedWidth })
+    }
   })
 
   it('renders uniform 5 rows with window-aware dashed placeholders across all 3 leaderboard cards', async () => {
@@ -740,7 +765,7 @@ describe('DemandDashboard Page', () => {
     expect(within(feedTable).getAllByTestId('feed-table-row')).toHaveLength(6)
   })
 
-  it('sorts Live Release Feed by Hype Velocity', async () => {
+  it('excludes Hype Velocity from Sort dropdown and offers Hype Index ↓, Votes ↓, and Recency ↓', async () => {
     renderDashboard()
 
     await waitFor(() => {
@@ -748,15 +773,16 @@ describe('DemandDashboard Page', () => {
     })
 
     const sortSelect = screen.getByTestId('feed-sort-select')
-    fireEvent.change(sortSelect, { target: { value: 'velocity' } })
-
-    const rows = screen.getAllByTestId('feed-table-row')
-    expect(rows.length).toBe(3)
-    // First row should be In Rainbows (+14.5 pts/hr)
-    expect(rows[0].textContent).toContain('In Rainbows')
+    const options = within(sortSelect).getAllByRole('option')
+    expect(options.map((o) => o.textContent)).toEqual([
+      'Hype Index ↓',
+      'Votes ↓',
+      'Recency ↓',
+    ])
+    expect(within(sortSelect).queryByRole('option', { name: /velocity/i })).not.toBeInTheDocument()
   })
 
-  it('sorts Live Release Feed by Upvotes descending with Hype Index tie-breaker and by Recency across ISO offsets', async () => {
+  it('sorts Live Release Feed by Votes descending with Hype Index tie-breaker and by Recency across ISO offsets', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(() =>
@@ -824,7 +850,7 @@ describe('DemandDashboard Page', () => {
     })
 
     const sortSelect = screen.getByRole('combobox', { name: 'Sort live release feed' })
-    expect(within(sortSelect).getByRole('option', { name: 'Upvotes ↓' })).toHaveValue('upvotes')
+    expect(within(sortSelect).getByRole('option', { name: 'Votes ↓' })).toHaveValue('upvotes')
 
     fireEvent.change(sortSelect, { target: { value: 'upvotes' } })
 
@@ -1099,13 +1125,13 @@ describe('DemandDashboard Page', () => {
     const newlyCard = screen.getByTestId('card-newly-added')
 
     await waitFor(() => {
-      expect(within(albumCard).getByText('1 Submission · 1 Release')).toBeInTheDocument()
+      expect(within(albumCard).getByText('1 Mention · 1 Release')).toBeInTheDocument()
     })
 
     expect(within(albumCard).getByRole('button', { name: '24H' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(releaseCard).getByRole('button', { name: '24H' })).toHaveAttribute('aria-pressed', 'true')
     expect(within(newlyCard).getByText('Standard Pressing · Wide / Unspecified')).toBeInTheDocument()
-    expect(within(newlyCard).getByText('+2 pts/hr · 12 pts')).toBeInTheDocument()
+    expect(within(newlyCard).queryByText(/pts/i)).not.toBeInTheDocument()
   })
 
   it('enforces accessible Live Release Feed controls, 24x24px clear button, scope="col" headers, ?window=24H links, and semantic tokens', async () => {
@@ -1158,10 +1184,21 @@ describe('DemandDashboard Page', () => {
 
     const feedTable = screen.getByRole('table')
     const columnHeaders = within(feedTable).getAllByRole('columnheader')
-    expect(columnHeaders).toHaveLength(7)
+    expect(columnHeaders).toHaveLength(6)
+    expect(columnHeaders.map((h) => h.textContent)).toEqual([
+      'Release & Artist',
+      'Variant',
+      'Retailer',
+      'Hype Index',
+      'Engagement',
+      'Action / Posted',
+    ])
     for (const header of columnHeaders) {
       expect(header).toHaveAttribute('scope', 'col')
     }
+
+    expect(within(feedTable).getByText((_, el) => el?.tagName === 'TD' && el.textContent === '150 votes · 42 comments')).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/reddit|r\/vinylreleases|pts\/hr/i)
 
     // All Album Detail and Release Detail links inside Live Release Feed preserve ?window=24H and focus-visible ring
     const rows = within(feedTable).getAllByTestId('feed-table-row')
@@ -1193,6 +1230,7 @@ describe('DemandDashboard Page', () => {
     const feedSkeletonRows = await screen.findAllByTestId('feed-skeleton-row')
     expect(feedSkeletonRows).toHaveLength(5)
     for (const row of feedSkeletonRows) {
+      expect(row.querySelector('td')).toHaveAttribute('colspan', '6')
       const pulseBlock = row.querySelector('.animate-pulse')
       expect(pulseBlock).toHaveClass('bg-accent-sand', 'border-strong')
       expect(pulseBlock).not.toHaveClass('bg-border-hairline')

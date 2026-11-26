@@ -157,14 +157,17 @@ describe('ArtistDetail Screen', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders loading skeleton when fetching', () => {
+  it('renders loading skeleton with circular monogram and 3-card hero KPI skeleton when fetching', () => {
     vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}))
     renderComponent()
 
-    expect(screen.getByTestId('screen-artist-detail-loading')).toBeInTheDocument()
+    const loading = screen.getByTestId('screen-artist-detail-loading')
+    expect(loading).toBeInTheDocument()
+    expect(within(loading).getByTestId('masthead-monogram-skeleton')).toHaveClass('rounded-full')
+    expect(within(loading).getAllByTestId('hero-kpi-skeleton-card')).toHaveLength(3)
   })
 
-  it('renders header, artist name, and Last Seen provenance chip', async () => {
+  it('renders ARTIST editorial super-header, circular portrait monogram, artist name, discography summary, and Last Seen', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockArtistResponse24H,
@@ -178,12 +181,24 @@ describe('ArtistDetail Screen', () => {
       ).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/Artist Discography · ID: art-test/i)).toBeInTheDocument()
-    expect(screen.getByText(/LAST SEEN:/i)).toBeInTheDocument()
+    const superHeader = screen.getByTestId('entity-super-header')
+    expect(superHeader).toHaveTextContent('ARTIST')
+    expect(superHeader).toHaveClass('border-b-[3px]')
+    expect(superHeader.textContent).not.toContain('/')
+    expect(superHeader.textContent).not.toMatch(/Discography/i)
+
+    expect(screen.getByRole('button', { name: '24H' })).toHaveAttribute('aria-pressed', 'true')
+
+    const masthead = screen.getByTestId('entity-masthead')
+    expect(within(masthead).getByTestId('vinyl-monogram')).toHaveClass('rounded-full')
+    expect(within(masthead).getByText('2 Albums · 4 Pressings')).toBeInTheDocument()
+    expect(within(masthead).getByText(/LAST SEEN:/i)).toBeInTheDocument()
+    expect(screen.queryByText(/ID:/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Artist Discography/i)).not.toBeInTheDocument()
     expect(screen.getByText(/Back to Directory/i)).toBeInTheDocument()
   })
 
-  it('renders 4-cell hero KPI strip with correct metrics, index, velocity, catalog footprint, reddit demand', async () => {
+  it('renders 3-card hero KPI strip with Hype Index, Engagement, and Discography', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockArtistResponse24H,
@@ -195,23 +210,29 @@ describe('ArtistDetail Screen', () => {
       expect(screen.getByTestId('hero-kpi-hype-index')).toBeInTheDocument()
     })
 
+    const kpiStrip = screen.getByTestId('hero-kpi-strip')
+    expect(kpiStrip.children).toHaveLength(3)
+
     const hypeCard = screen.getByTestId('hero-kpi-hype-index')
     expect(hypeCard).toHaveTextContent('88')
     expect(hypeCard).toHaveTextContent(/HIGH/i)
 
-    const velCard = screen.getByTestId('hero-kpi-hype-velocity')
-    expect(velCard).toHaveTextContent('+14.5 pts/hr')
+    const engagementCard = screen.getByTestId('hero-kpi-engagement')
+    expect(engagementCard).toHaveTextContent('Engagement')
+    expect(engagementCard).toHaveTextContent('220 votes')
+    expect(engagementCard).toHaveTextContent('45 comments · 5 mentions')
 
-    const footprintCard = screen.getByTestId('hero-kpi-catalog-footprint')
-    expect(footprintCard).toHaveTextContent('2 Albums')
-    expect(footprintCard).toHaveTextContent('1 Solo · 1 Combined · 4 Pressings')
+    const discographyCard = screen.getByTestId('hero-kpi-discography')
+    expect(discographyCard).toHaveTextContent('Discography')
+    expect(discographyCard).toHaveTextContent('2 Albums')
+    expect(discographyCard).toHaveTextContent('1 Solo · 1 Collaboration · 4 Pressings')
 
-    const demandCard = screen.getByTestId('hero-kpi-reddit-demand')
-    expect(demandCard).toHaveTextContent('+85 pts')
-    expect(demandCard).toHaveTextContent('5 Submissions · 220 upvotes · 45 comments')
+    expect(screen.queryByTestId('hero-kpi-hype-velocity')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('hero-kpi-catalog-footprint')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('hero-kpi-reddit-demand')).not.toBeInTheDocument()
   })
 
-  it('renders Tracked Albums matrix with 7 columns, Solo and Combined badges, and View Album links with window query', async () => {
+  it('renders 6-column Albums table with Credit (Solo / Collaboration), Pressings, Engagement, and View Album links', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockArtistResponse24H,
@@ -220,26 +241,41 @@ describe('ArtistDetail Screen', () => {
     renderComponent('/artists/art-test-123?window=24H')
 
     await waitFor(() => {
-      expect(screen.getByTestId('table-tracked-albums')).toBeInTheDocument()
+      expect(screen.getByTestId('table-albums')).toBeInTheDocument()
     })
 
-    const table = screen.getByTestId('table-tracked-albums')
-    expect(within(table).getByText('Siamese Dream')).toBeInTheDocument()
-    expect(within(table).getByText('Judas O')).toBeInTheDocument()
+    const tableCard = screen.getByTestId('table-albums')
+    expect(within(tableCard).getByText('Albums')).toBeInTheDocument()
+    expect(within(tableCard).getByText('2 Albums')).toBeInTheDocument()
 
-    // Solo badge vs Combined badge
-    expect(within(table).getByText('Solo')).toBeInTheDocument()
-    expect(
-      within(table).getByText('Combined: The Smashing Pumpkins / Various')
-    ).toBeInTheDocument()
+    const headers = within(tableCard)
+      .getAllByRole('columnheader')
+      .map((th) => th.textContent?.trim())
+    expect(headers).toEqual(['Album', 'Credit', 'Pressings', 'Engagement', 'Hype Index', 'Action'])
 
-    const viewAlbumLinks = within(table).getAllByRole('link', { name: /View Album →/i })
+    expect(within(tableCard).getByText('Siamese Dream')).toBeInTheDocument()
+    expect(within(tableCard).getByText('Judas O')).toBeInTheDocument()
+    // Combined artist credit string clearly shown under album title
+    expect(within(tableCard).getByText('The Smashing Pumpkins / Various')).toBeInTheDocument()
+
+    // Solo badge vs Collaboration badge (no raw "Combined:")
+    expect(within(tableCard).getByText('Solo')).toBeInTheDocument()
+    expect(within(tableCard).getByText('Collaboration')).toBeInTheDocument()
+    expect(tableCard).not.toHaveTextContent(/Combined:/i)
+
+    expect(within(tableCard).getByText('3 Pressings')).toBeInTheDocument()
+    expect(within(tableCard).getByText('1 Pressing')).toBeInTheDocument()
+    expect(within(tableCard).getByText('3 mentions · 160 votes · 30 comments')).toBeInTheDocument()
+    expect(within(tableCard).getByText('2 mentions · 60 votes · 15 comments')).toBeInTheDocument()
+    expect(tableCard).not.toHaveTextContent(/Hype Velocity|pts\/hr|Indexed Titles|Derived albums/i)
+
+    const viewAlbumLinks = within(tableCard).getAllByRole('link', { name: /View Album →/i })
     expect(viewAlbumLinks).toHaveLength(2)
     expect(viewAlbumLinks[0]).toHaveAttribute('href', '/albums/alb-1?window=24H')
     expect(viewAlbumLinks[1]).toHaveAttribute('href', '/albums/alb-2?window=24H')
   })
 
-  it('renders Child Releases discography ledger with 7 columns, variants, retailers, and View Release links with window query', async () => {
+  it('renders 6-column All Pressings table with Album, Variant, Retailer, Engagement, Hype Index, and View Release links', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockArtistResponse24H,
@@ -248,19 +284,97 @@ describe('ArtistDetail Screen', () => {
     renderComponent('/artists/art-test-123?window=24H')
 
     await waitFor(() => {
-      expect(screen.getByTestId('table-child-releases')).toBeInTheDocument()
+      expect(screen.getByTestId('table-all-pressings')).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/All physical variants across/i)).toBeInTheDocument()
+    const tableCard = screen.getByTestId('table-all-pressings')
+    expect(within(tableCard).getByText('All Pressings')).toBeInTheDocument()
+    expect(within(tableCard).getByText('3 Pressings')).toBeInTheDocument()
 
-    const table = screen.getByTestId('table-child-releases')
-    expect(within(table).getByText('2LP Purple Marbled')).toBeInTheDocument()
-    expect(within(table).getByText('Standard Pressing')).toBeInTheDocument() // fallback for null variant
-    expect(within(table).getByText('Wide / Unspecified')).toBeInTheDocument() // fallback for null retailer
+    const headers = within(tableCard)
+      .getAllByRole('columnheader')
+      .map((th) => th.textContent?.trim())
+    expect(headers).toEqual(['Album', 'Variant', 'Retailer', 'Engagement', 'Hype Index', 'Action'])
 
-    const viewReleaseLinks = within(table).getAllByRole('link', { name: /View Release →/i })
+    expect(within(tableCard).getByText('2LP Purple Marbled')).toBeInTheDocument()
+    expect(within(tableCard).getByText('Standard Pressing')).toBeInTheDocument() // fallback for null variant
+    expect(within(tableCard).getByText('Wide / Unspecified')).toBeInTheDocument() // fallback for null retailer
+    expect(within(tableCard).getByText('2 mentions · 110 votes · 20 comments')).toBeInTheDocument()
+    expect(within(tableCard).getByText('1 mention · 50 votes · 10 comments')).toBeInTheDocument()
+    expect(tableCard).not.toHaveTextContent(/Hype Velocity|pts\/hr|Child Releases|Parent Album/i)
+
+    const viewReleaseLinks = within(tableCard).getAllByRole('link', { name: /View Release →/i })
     expect(viewReleaseLinks).toHaveLength(3)
     expect(viewReleaseLinks[0]).toHaveAttribute('href', '/releases/rel-1?window=24H')
+  })
+
+  it('renders plain-English empty states when an artist has no albums or pressings', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ...mockArtistResponse24H,
+        hero_kpi: {
+          ...mockArtistResponse24H.hero_kpi,
+          total_albums: 0,
+          solo_album_count: 0,
+          combined_album_count: 0,
+          total_releases: 0,
+          catalog_footprint: {
+            total_albums: 0,
+            solo_album_count: 0,
+            combined_album_count: 0,
+            total_releases: 0,
+          },
+        },
+        tracked_albums: [],
+        child_releases: [],
+      }),
+    } as Response)
+
+    renderComponent()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('table-albums')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('No albums recorded for this artist.')).toBeInTheDocument()
+    expect(screen.getByText('No pressings recorded for this artist.')).toBeInTheDocument()
+  })
+
+  it('renders zero banned jargon strings across the entire Artist Detail screen', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockArtistResponse24H,
+    } as Response)
+
+    renderComponent()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('screen-artist-detail')).toBeInTheDocument()
+    })
+
+    const fullText = screen.getByTestId('screen-artist-detail').textContent || ''
+    const bannedPatterns = [
+      /\bReddit\b/i,
+      /r\/vinylreleases/i,
+      /pts\/hr/i,
+      /\bHype Velocity\b/i,
+      /ID:/i,
+      /Reddit Demand/i,
+      /Catalog Footprint/i,
+      /Billing Attribution/i,
+      /Tracked Albums Matrix/i,
+      /Derived albums catalog/i,
+      /Indexed Titles/i,
+      /Child Releases/i,
+      /\bSubmission\b/i,
+      /\bSubmissions\b/i,
+      /Combined:/i,
+      /\bupvotes\b/i,
+    ]
+    for (const pattern of bannedPatterns) {
+      expect(fullText).not.toMatch(pattern)
+    }
   })
 
   it('switches window from 24H to 7D updating fetch query', async () => {

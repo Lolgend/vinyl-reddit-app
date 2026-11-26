@@ -89,7 +89,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
                   VINYL DEMAND
                 </span>
                 <span className="font-mono text-[11px] text-nav-muted tracking-wider uppercase truncate">
-                  r/vinylreleases LEDGER
+                  NO MORE GUESSING
                 </span>
               </div>
             </Link>
@@ -171,13 +171,6 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
               </div>
             </div>
           </nav>
-        </div>
-
-        {/* Rail Footer (Factual Provenance Only) */}
-        <div className="p-4 border-t border-[#222226]">
-          <div className="font-mono text-[11px] text-nav-muted tracking-wide" data-testid="rail-footer">
-            SOURCE: r/vinylreleases
-          </div>
         </div>
       </aside>
     </>

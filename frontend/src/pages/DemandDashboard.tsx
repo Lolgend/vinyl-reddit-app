@@ -3,23 +3,25 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, ArrowUpRight, Flame, Layers, Search, Sparkles, TrendingUp, X } from 'lucide-react'
 import { VinylMonogram } from '../components/VinylMonogram'
+import { HypeIndexMeter } from '../components/HypeIndexMeter'
 import { TierBadge } from '../components/TierBadge'
 import { formatRelativeTime } from '../utils/formatTime'
+import { formatVariantLabel } from '../utils/formatters'
 import {
   FOCUS_RING_CLASS,
   PILL_BUTTON_ACTIVE_CLASS,
   PILL_BUTTON_BASE_CLASS,
   PILL_BUTTON_INACTIVE_CLASS,
+  TIER_BAR_CLASS,
 } from '../utils/uiClasses'
 
 const ALL_FILTER = 'all' as const
-const DEFAULT_VARIANT_LABEL = 'Standard Pressing'
 const DEFAULT_RETAILER_LABEL = 'Wide / Unspecified'
 
 type WindowType = '24H' | '7D' | '1M'
 type TierFilter = typeof ALL_FILTER | 'high' | 'moderate' | 'low'
 type RetailerFilter = typeof ALL_FILTER | (string & {})
-type SortOption = 'hype_index' | 'velocity' | 'recency' | 'upvotes'
+type SortOption = 'hype_index' | 'recency' | 'upvotes'
 
 interface AlbumLeaderboardItem {
   album_id: string
@@ -108,12 +110,6 @@ const TIER_OPTIONS: Array<{ value: TierFilter; label: string }> = [
   { value: 'low', label: 'Low 0–39' },
 ]
 
-const TIER_BAR_CLASS: Record<'high' | 'moderate' | 'low', string> = {
-  high: 'bg-hype-high',
-  moderate: 'bg-hype-moderate',
-  low: 'bg-ink-secondary',
-}
-
 interface HypeWindowSwitcherProps {
   activeWindow: WindowType
   onChange: (w: WindowType) => void
@@ -154,14 +150,12 @@ interface ReleaseLeaderboardRowProps {
   release: ReleaseLeaderboardItem
   window: WindowType
   leftBadge: React.ReactNode
-  rightMeta: string
 }
 
 const ReleaseLeaderboardRow: React.FC<ReleaseLeaderboardRowProps> = ({
   release,
   window,
   leftBadge,
-  rightMeta,
 }) => {
   const fullTitle = `${release.combined_artist} — ${release.album_title}`
   return (
@@ -182,15 +176,12 @@ const ReleaseLeaderboardRow: React.FC<ReleaseLeaderboardRowProps> = ({
             {fullTitle}
           </Link>
           <div className="text-[11px] text-ink-secondary font-sans truncate">
-            {release.variant || DEFAULT_VARIANT_LABEL} ·{' '}
+            {formatVariantLabel(release.variant)} ·{' '}
             {release.retailer_name || DEFAULT_RETAILER_LABEL}
           </div>
         </div>
       </div>
-      <div className="flex flex-col items-end shrink-0">
-        <TierBadge value={release.hype_index} tier={release.tier} />
-        <span className="font-mono text-[10px] text-ink-secondary mt-0.5">{rightMeta}</span>
-      </div>
+      <HypeIndexMeter hypeIndex={release.hype_index} tier={release.tier} />
     </div>
   )
 }
@@ -358,9 +349,6 @@ export const DemandDashboard: React.FC = () => {
         : null
 
     result.sort((a, b) => {
-      if (sortBy === 'velocity') {
-        return b.hype_velocity - a.hype_velocity || b.hype_index - a.hype_index
-      }
       if (sortBy === 'upvotes') {
         return b.score - a.score || b.hype_index - a.hype_index
       }
@@ -385,7 +373,7 @@ export const DemandDashboard: React.FC = () => {
           Demand Dashboard
         </h1>
         <p className="font-sans text-sm text-ink-secondary mt-1">
-          Live r/vinylreleases demand signals, leaderboard rankings, and submission velocity.
+          Live community demand signals, Hype Index leaderboards, and release tracking.
         </p>
       </div>
 
@@ -471,24 +459,13 @@ export const DemandDashboard: React.FC = () => {
                               </Link>
                               <div className="text-[11px] text-ink-secondary font-sans truncate">
                                 {submissionCount}{' '}
-                                {submissionCount === 1 ? 'Submission' : 'Submissions'} ·{' '}
+                                {submissionCount === 1 ? 'Mention' : 'Mentions'} ·{' '}
                                 {album.release_count}{' '}
                                 {album.release_count === 1 ? 'Release' : 'Releases'}
                               </div>
                             </div>
                           </div>
-                          <div className="flex flex-col items-end shrink-0 w-24">
-                            <TierBadge value={album.hype_index} tier={album.tier} />
-                            <div className="w-full bg-accent-sand h-1.5 rounded-[2px] mt-1 overflow-hidden border border-ink-primary">
-                              <div
-                                className={`h-full ${TIER_BAR_CLASS[album.tier]}`}
-                                style={{ width: `${Math.min(100, Math.max(0, album.hype_index))}%` }}
-                              />
-                            </div>
-                            <span className="font-mono text-[10px] text-ink-secondary mt-0.5">
-                              +{album.hype_velocity} pts/hr
-                            </span>
-                          </div>
+                          <HypeIndexMeter hypeIndex={album.hype_index} tier={album.tier} />
                         </div>
                       )
                     })}
@@ -535,7 +512,6 @@ export const DemandDashboard: React.FC = () => {
                             #{idx + 1}
                           </span>
                         }
-                        rightMeta={`+${release.hype_velocity} pts/hr`}
                       />
                     ))}
                     {/* Uniform 5-Row Padding */}
@@ -579,7 +555,6 @@ export const DemandDashboard: React.FC = () => {
                             {formatRelativeTime(release.first_seen_at)}
                           </span>
                         }
-                        rightMeta={`+${release.hype_velocity} pts/hr · ${release.latest_score ?? 0} pts`}
                       />
                     ))}
                     {/* Uniform 5-Row Padding */}
@@ -606,7 +581,7 @@ export const DemandDashboard: React.FC = () => {
               </h2>
             </div>
             <p className="font-sans text-xs text-ink-secondary mt-0.5">
-              Live pressings ledger with real-time velocity, variant specs, and Reddit community conviction.
+              Live pressings ledger with variant specs, Hype Index scores, and community engagement.
             </p>
           </div>
 
@@ -688,15 +663,14 @@ export const DemandDashboard: React.FC = () => {
                 className={`bg-card border-strong rounded-[4px] px-2 py-1 min-h-[28px] font-mono text-xs text-ink-primary shadow-brutal-sm cursor-pointer ${FOCUS_RING_CLASS}`}
               >
                 <option value="hype_index">Hype Index ↓</option>
-                <option value="velocity">Hype Velocity ↓</option>
-                <option value="upvotes">Upvotes ↓</option>
+                <option value="upvotes">Votes ↓</option>
                 <option value="recency">Recency ↓</option>
               </select>
             </div>
           </div>
         </div>
 
-        {/* 7-Column Ledger Table */}
+        {/* 6-Column Ledger Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -705,8 +679,7 @@ export const DemandDashboard: React.FC = () => {
                 <th scope="col" className="py-2.5 px-3">Variant</th>
                 <th scope="col" className="py-2.5 px-3">Retailer</th>
                 <th scope="col" className="py-2.5 px-3 text-center">Hype Index</th>
-                <th scope="col" className="py-2.5 px-3 text-right">Velocity</th>
-                <th scope="col" className="py-2.5 px-3 text-right">Reddit Demand</th>
+                <th scope="col" className="py-2.5 px-3 text-right">Engagement</th>
                 <th scope="col" className="py-2.5 px-3 text-right">Action / Posted</th>
               </tr>
             </thead>
@@ -714,14 +687,14 @@ export const DemandDashboard: React.FC = () => {
               {fixed24hLoading ? (
                 Array.from({ length: 5 }).map((_, idx) => (
                   <tr key={`feed-skel-${idx}`} data-testid="feed-skeleton-row" className="h-[56px]">
-                    <td colSpan={7} className="py-3 px-3">
+                    <td colSpan={6} className="py-3 px-3">
                       <div className="h-8 bg-accent-sand border-strong rounded-[4px] animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : filteredFeed.length === 0 ? (
                 <tr data-testid="feed-empty-state">
-                  <td colSpan={7} className="py-12 text-center">
+                  <td colSpan={6} className="py-12 text-center">
                     <div className="font-mono text-base font-bold text-ink-primary">
                       0 MATCHING RECORDS
                     </div>
@@ -792,7 +765,7 @@ export const DemandDashboard: React.FC = () => {
                     {/* 2. Variant */}
                     <td className="py-3 px-3">
                       <span className="inline-block border-strong px-2 py-0.5 rounded-[4px] font-mono text-[11px] bg-card text-ink-primary shadow-brutal-sm max-w-[160px] truncate">
-                        {item.variant || DEFAULT_VARIANT_LABEL}
+                        {formatVariantLabel(item.variant)}
                       </span>
                     </td>
 
@@ -816,18 +789,13 @@ export const DemandDashboard: React.FC = () => {
                       </div>
                     </td>
 
-                    {/* 5. Velocity */}
-                    <td className="py-3 px-3 text-right font-mono text-xs font-semibold text-ink-primary">
-                      +{item.hype_velocity} pts/hr
-                    </td>
-
-                    {/* 6. Reddit Demand */}
+                    {/* 5. Engagement */}
                     <td className="py-3 px-3 text-right font-mono text-xs text-ink-secondary">
-                      <span className="font-bold text-ink-primary">{item.score}</span> pts ·{' '}
-                      <span className="font-bold text-ink-primary">{item.num_comments}</span> cmts
+                      <span className="font-bold text-ink-primary">{item.score}</span> votes ·{' '}
+                      <span className="font-bold text-ink-primary">{item.num_comments}</span> comments
                     </td>
 
-                    {/* 7. Action / Posted */}
+                    {/* 6. Action / Posted */}
                     <td className="py-3 px-3 text-right">
                       <div className="flex flex-col items-end gap-1">
                         <Link

@@ -17,3 +17,13 @@ export function formatRelativeTime(dateString?: string | null): string {
   const diffDays = Math.floor(diffHours / 24)
   return `${diffDays}D AGO`
 }
+
+/**
+ * Formats a Last Seen timestamp as "<REL_TIME> (<YYYY-MM-DD>)", or "NEVER" when absent.
+ */
+export function formatLastSeenDisplay(lastSeenAt?: string | null): string {
+  if (!lastSeenAt) return 'NEVER'
+  const date = new Date(lastSeenAt)
+  if (isNaN(date.getTime())) return 'UNKNOWN'
+  return `${formatRelativeTime(lastSeenAt)} (${date.toISOString().split('T')[0]})`
+}

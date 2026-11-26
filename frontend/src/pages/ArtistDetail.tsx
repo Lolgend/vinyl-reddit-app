@@ -2,19 +2,20 @@ import React from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Activity,
   AlertTriangle,
   ArrowLeft,
   Disc,
-  Flame,
   Layers,
-  TrendingUp,
 } from 'lucide-react'
+import { EntityDetailSkeleton } from '../components/EntityDetailSkeleton'
+import { EntityEditorialHeader, type HypeWindow } from '../components/EntityEditorialHeader'
+import { EngagementKpiCard, HypeIndexKpiCard } from '../components/EntityHeroKpiCards'
+import { HypeIndexMeter } from '../components/HypeIndexMeter'
 import { VinylMonogram } from '../components/VinylMonogram'
-import { TierBadge } from '../components/TierBadge'
-import { formatRelativeTime } from '../utils/formatTime'
+import { formatLastSeenDisplay } from '../utils/formatTime'
+import { formatVariantLabel } from '../utils/formatters'
 
-type WindowType = '24H' | '7D' | '1M'
+type WindowType = HypeWindow
 type TierType = 'high' | 'moderate' | 'low'
 
 interface TrackedAlbumRow {
@@ -127,31 +128,8 @@ export const ArtistDetail: React.FC = () => {
   // Loading Skeleton State matching exact container geometries
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6" data-testid="screen-artist-detail-loading">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-[4px] bg-[#E5E0DA] border-[1.5px] border-[#121212] animate-pulse" />
-          <div className="flex flex-col gap-2">
-            <div className="w-64 h-8 bg-[#E5E0DA] rounded animate-pulse" />
-            <div className="w-40 h-4 bg-[#E5E0DA] rounded animate-pulse" />
-            <div className="w-48 h-6 bg-[#E5E0DA] rounded-full animate-pulse mt-1" />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-28 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-            >
-              <div className="flex justify-between">
-                <div className="w-24 h-3.5 bg-[#E5E0DA] rounded animate-pulse" />
-                <div className="w-12 h-4 bg-[#E5E0DA] rounded animate-pulse" />
-              </div>
-              <div className="w-20 h-7 bg-[#E5E0DA] rounded animate-pulse" />
-              <div className="w-full h-2 bg-[#E5E0DA] rounded animate-pulse" />
-            </div>
-          ))}
-        </div>
-        {/* Tracked Albums Matrix Skeleton */}
+      <EntityDetailSkeleton screenTestId="screen-artist-detail-loading" monogramShape="circle">
+        {/* Albums Table Skeleton */}
         <div className="h-72 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col justify-between">
           <div className="w-48 h-6 bg-[#E5E0DA] rounded animate-pulse" />
           <div className="flex flex-col gap-2">
@@ -160,7 +138,7 @@ export const ArtistDetail: React.FC = () => {
             ))}
           </div>
         </div>
-        {/* Child Releases Ledger Skeleton */}
+        {/* All Pressings Table Skeleton */}
         <div className="h-72 bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 flex flex-col justify-between">
           <div className="w-48 h-6 bg-[#E5E0DA] rounded animate-pulse" />
           <div className="flex flex-col gap-2">
@@ -169,7 +147,7 @@ export const ArtistDetail: React.FC = () => {
             ))}
           </div>
         </div>
-      </div>
+      </EntityDetailSkeleton>
     )
   }
 
@@ -203,192 +181,104 @@ export const ArtistDetail: React.FC = () => {
   }
 
   const { artist, hero_kpi, tracked_albums, child_releases } = data
+  const totalAlbums = hero_kpi.catalog_footprint?.total_albums ?? hero_kpi.total_albums
+  const soloAlbumCount = hero_kpi.catalog_footprint?.solo_album_count ?? hero_kpi.solo_album_count
+  const combinedAlbumCount =
+    hero_kpi.catalog_footprint?.combined_album_count ?? hero_kpi.combined_album_count
+  const totalReleases = hero_kpi.catalog_footprint?.total_releases ?? hero_kpi.total_releases
+  const totalScore = hero_kpi.reddit_demand?.total_score ?? hero_kpi.total_score
+  const totalComments = hero_kpi.reddit_demand?.total_comments ?? hero_kpi.total_comments
+  const submissionCount = hero_kpi.reddit_demand?.submission_count ?? hero_kpi.submission_count
 
-  // Format last seen date string
-  const lastSeenDate = artist.last_seen_at
-    ? `${formatRelativeTime(artist.last_seen_at)} (${new Date(artist.last_seen_at).toISOString().split('T')[0]})`
-    : 'NEVER'
+  const lastSeenDate = formatLastSeenDisplay(artist.last_seen_at)
 
   return (
     <div className="flex flex-col gap-6" data-testid="screen-artist-detail">
-      {/* Back Link preserving window parameter */}
-      <div>
-        <Link
-          to={`/directory?tab=artists&window=${window}`}
-          className="inline-flex items-center gap-1.5 font-mono text-xs text-[#646464] hover:text-[#121212] transition-colors"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Back to Directory
-        </Link>
-      </div>
-
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <VinylMonogram
-            name={artist.name}
-            entityId={artist.monogram_key || artist.artist_id}
-            size={64}
-          />
-          <div>
-            <h1 className="font-grotesk font-bold text-3xl text-[#121212] tracking-tight">
-              {artist.name}
-            </h1>
-            <div className="text-base text-[#646464] font-medium mt-0.5">
-              Artist Discography · ID: {artist.artist_id.slice(0, 8)}...
-            </div>
-
-            {/* Top-level Last Seen Provenance Chip */}
-            <div className="inline-flex items-center gap-1.5 mt-2 bg-white border-[1.5px] border-[#121212] px-2.5 py-0.5 rounded-full font-mono text-[11px] text-[#121212] shadow-brutal-sm">
-              <span className="text-[#646464]">LAST SEEN:</span>
-              <span className="font-bold">{lastSeenDate}</span>
-            </div>
+      <EntityEditorialHeader
+        entityLabel="ARTIST"
+        activeWindow={window}
+        onWindowChange={handleWindowChange}
+        backLinks={
+          <Link
+            to={`/directory?tab=artists&window=${window}`}
+            className="inline-flex items-center gap-1.5 font-mono text-xs text-[#646464] hover:text-[#121212] transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to Directory
+          </Link>
+        }
+        monogram={{
+          name: artist.name,
+          entityId: artist.monogram_key || artist.artist_id,
+          shape: 'circle',
+        }}
+      >
+        <h1 className="font-grotesk font-bold text-3xl text-[#121212] tracking-tight">
+          {artist.name}
+        </h1>
+        <div className="text-base text-[#646464] font-medium mt-0.5">
+          {totalAlbums} {totalAlbums === 1 ? 'Album' : 'Albums'} · {totalReleases}{' '}
+          {totalReleases === 1 ? 'Pressing' : 'Pressings'}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 mt-2.5">
+          <div className="inline-flex items-center gap-1.5 bg-[#FAF7F5] border-[1.5px] border-[#121212] px-2.5 py-0.5 rounded-full font-mono text-[11px] text-[#121212]">
+            <span className="text-[#646464]">LAST SEEN:</span>
+            <span className="font-bold">{lastSeenDate}</span>
           </div>
         </div>
+      </EntityEditorialHeader>
 
-        {/* Page-level Window Pill Switcher */}
-        <div className="flex items-center self-start md:self-auto bg-[#F7F3F0] p-0.5 rounded-full border-[1.5px] border-[#121212]">
-          {(['24H', '7D', '1M'] as WindowType[]).map((w) => (
-            <button
-              key={w}
-              data-window={w}
-              onClick={() => handleWindowChange(w)}
-              className={`px-3 py-1 rounded-full font-mono text-xs transition-all ${
-                window === w
-                  ? 'bg-[#121212] text-white font-bold shadow-brutal-sm'
-                  : 'text-[#646464] hover:text-[#121212]'
-              }`}
-            >
-              {w}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* 3-Card Hero KPI Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" data-testid="hero-kpi-strip">
+        <HypeIndexKpiCard hypeIndex={hero_kpi.hype_index} tier={hero_kpi.tier} />
+        <EngagementKpiCard
+          totalScore={totalScore}
+          totalComments={totalComments}
+          mentionCount={submissionCount}
+        />
 
-      {/* 4-Cell Hero KPI Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Cell 1: Hype Index */}
+        {/* Card 3: Discography */}
         <div
           className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-          data-testid="hero-kpi-hype-index"
-        >
-          <div className="flex items-center justify-between text-[#646464] mb-2">
-            <span className="font-mono text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
-              <Flame className="w-3.5 h-3.5 text-[#121212]" />
-              Hype Index
-            </span>
-            <TierBadge value={hero_kpi.hype_index} tier={hero_kpi.tier} />
-          </div>
-          <div>
-            <div className="font-mono font-bold text-2xl text-[#121212]">
-              {hero_kpi.hype_index}{' '}
-              <span className="text-sm font-normal text-[#646464]">/ 100</span>
-            </div>
-            {/* Progress track */}
-            <div className="w-full bg-[#E5E0DA] h-2 rounded-[2px] mt-2 overflow-hidden border border-[#121212]">
-              <div
-                className={`h-full ${
-                  hero_kpi.tier === 'high'
-                    ? 'bg-[#68D391]'
-                    : hero_kpi.tier === 'moderate'
-                    ? 'bg-[#ECC94B]'
-                    : 'bg-[#646464]'
-                }`}
-                style={{ width: `${hero_kpi.hype_index}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Cell 2: Hype Velocity */}
-        <div
-          className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-          data-testid="hero-kpi-hype-velocity"
-        >
-          <div className="flex items-center justify-between text-[#646464] mb-2">
-            <span className="font-mono text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
-              <TrendingUp className="w-3.5 h-3.5 text-[#121212]" />
-              Hype Velocity
-            </span>
-          </div>
-          <div>
-            <div className="font-mono font-bold text-2xl text-[#121212]">
-              +{hero_kpi.hype_velocity}{' '}
-              <span className="text-sm font-normal text-[#646464]">pts/hr</span>
-            </div>
-            <div className="font-mono text-[11px] text-[#646464] mt-2">
-              Engagement speed in {window}
-            </div>
-          </div>
-        </div>
-
-        {/* Cell 3: Catalog Footprint */}
-        <div
-          className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-          data-testid="hero-kpi-catalog-footprint"
+          data-testid="hero-kpi-discography"
         >
           <div className="flex items-center justify-between text-[#646464] mb-2">
             <span className="font-mono text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-[#121212]" />
-              Catalog Footprint
+              Discography
             </span>
           </div>
           <div>
             <div className="font-mono font-bold text-2xl text-[#121212]">
-              {hero_kpi.catalog_footprint.total_albums}{' '}
+              {totalAlbums}{' '}
               <span className="text-sm font-normal text-[#646464]">
-                {hero_kpi.catalog_footprint.total_albums === 1 ? 'Album' : 'Albums'}
+                {totalAlbums === 1 ? 'Album' : 'Albums'}
               </span>
             </div>
             <div className="font-mono text-[11px] text-[#646464] mt-2">
-              {hero_kpi.catalog_footprint.solo_album_count} Solo ·{' '}
-              {hero_kpi.catalog_footprint.combined_album_count} Combined ·{' '}
-              {hero_kpi.catalog_footprint.total_releases} Pressings
-            </div>
-          </div>
-        </div>
-
-        {/* Cell 4: Reddit Demand */}
-        <div
-          className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-4 flex flex-col justify-between"
-          data-testid="hero-kpi-reddit-demand"
-        >
-          <div className="flex items-center justify-between text-[#646464] mb-2">
-            <span className="font-mono text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-[#121212]" />
-              Reddit Demand
-            </span>
-          </div>
-          <div>
-            <div className="font-mono font-bold text-2xl text-[#121212]">
-              +{hero_kpi.reddit_demand.points_gain}{' '}
-              <span className="text-sm font-normal text-[#646464]">pts</span>
-            </div>
-            <div className="font-mono text-[11px] text-[#646464] mt-2 truncate">
-              {hero_kpi.reddit_demand.total_submissions} Submissions ·{' '}
-              {hero_kpi.reddit_demand.total_score} upvotes ·{' '}
-              {hero_kpi.reddit_demand.total_comments} comments
+              {soloAlbumCount} Solo · {combinedAlbumCount} Collaboration ·{' '}
+              {totalReleases} {totalReleases === 1 ? 'Pressing' : 'Pressings'}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Middle Row (12 columns) — Tracked Albums & Billing Attribution Matrix */}
+      {/* Middle Row (12 columns) — 6-Column Albums Table */}
       <div
         className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 col-span-12"
-        data-testid="table-tracked-albums"
+        data-testid="table-albums"
       >
         <div className="flex items-center justify-between mb-1">
           <div className="font-grotesk font-bold text-lg text-[#121212] flex items-center gap-2">
             <Layers className="w-4 h-4 text-[#121212]" />
-            Tracked Albums Matrix
+            Albums
           </div>
           <span className="font-mono text-xs text-[#646464]">
-            {tracked_albums.length} Indexed Titles
+            {tracked_albums.length} {tracked_albums.length === 1 ? 'Album' : 'Albums'}
           </span>
         </div>
         <p className="font-sans text-xs text-[#646464] mb-4">
-          Derived albums catalog attributed to {artist.name}, distinguishing solo projects from collaborative and split appearances.
+          Albums by {artist.name}, distinguishing solo projects from collaborations.
         </p>
 
         <div className="overflow-x-auto">
@@ -396,10 +286,9 @@ export const ArtistDetail: React.FC = () => {
             <thead>
               <tr className="bg-[#F7F3F0] border-b-[1.5px] border-[#121212] font-mono text-[11px] text-[#646464] uppercase">
                 <th className="py-2.5 px-3">Album</th>
-                <th className="py-2.5 px-3">Billing Attribution</th>
-                <th className="py-2.5 px-3">Child Releases</th>
-                <th className="py-2.5 px-3">Submissions</th>
-                <th className="py-2.5 px-3">Hype Velocity</th>
+                <th className="py-2.5 px-3">Credit</th>
+                <th className="py-2.5 px-3">Pressings</th>
+                <th className="py-2.5 px-3">Engagement</th>
                 <th className="py-2.5 px-3">Hype Index</th>
                 <th className="py-2.5 px-3 text-right">Action</th>
               </tr>
@@ -413,13 +302,14 @@ export const ArtistDetail: React.FC = () => {
                     key={alb.album_id}
                     className="border-b border-[#E5E0DA] hover:bg-[#FAF7F5] transition-colors"
                   >
-                    {/* Column 1: Album (Monogram + Title) */}
+                    {/* Column 1: Album (Square Sleeve Monogram + Title + Combined Artist) */}
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-3">
                         <VinylMonogram
                           name={alb.album_title}
                           entityId={alb.album_id}
                           size={36}
+                          shape="square"
                         />
                         <div className="flex flex-col">
                           <span className="font-grotesk font-bold text-sm text-[#121212]">
@@ -432,7 +322,7 @@ export const ArtistDetail: React.FC = () => {
                       </div>
                     </td>
 
-                    {/* Column 2: Billing Attribution */}
+                    {/* Column 2: Credit */}
                     <td className="py-3 px-3">
                       {isSolo ? (
                         <span className="inline-block bg-[#68D391] border border-[#121212] px-2 py-0.5 rounded-[4px] font-mono text-xs font-bold text-[#121212]">
@@ -440,46 +330,32 @@ export const ArtistDetail: React.FC = () => {
                         </span>
                       ) : (
                         <span className="inline-block bg-[#FAF7F5] border border-[#121212] px-2 py-0.5 rounded-[4px] font-mono text-xs font-medium text-[#121212]">
-                          {alb.billing_attribution}
+                          Collaboration
                         </span>
                       )}
                     </td>
 
-                    {/* Column 3: Child Releases count */}
+                    {/* Column 3: Pressings */}
                     <td className="py-3 px-3 font-mono text-xs text-[#121212]">
                       {alb.release_count} {alb.release_count === 1 ? 'Pressing' : 'Pressings'}
                     </td>
 
-                    {/* Column 4: Submissions */}
+                    {/* Column 4: Engagement */}
                     <td className="py-3 px-3 font-mono text-xs text-[#646464]">
-                      {alb.submission_count} submissions · {alb.score} pts · {alb.num_comments} comments
+                      {alb.submission_count} {alb.submission_count === 1 ? 'mention' : 'mentions'} · {alb.score} votes · {alb.num_comments} comments
                     </td>
 
-                    {/* Column 5: Hype Velocity */}
-                    <td className="py-3 px-3 font-mono text-xs text-[#121212]">
-                      +{alb.hype_velocity} pts/hr
-                    </td>
-
-                    {/* Column 6: Hype Index */}
+                    {/* Column 5: Hype Index */}
                     <td className="py-3 px-3">
-                      <div className="flex items-center gap-1.5">
-                        <TierBadge value={alb.hype_index} tier={alb.tier} />
-                        <div className="w-12 bg-[#E5E0DA] h-1.5 rounded-[1px] overflow-hidden border border-[#121212]">
-                          <div
-                            className={`h-full ${
-                              alb.tier === 'high'
-                                ? 'bg-[#68D391]'
-                                : alb.tier === 'moderate'
-                                ? 'bg-[#ECC94B]'
-                                : 'bg-[#646464]'
-                            }`}
-                            style={{ width: `${alb.hype_index}%` }}
-                          />
-                        </div>
-                      </div>
+                      <HypeIndexMeter
+                        hypeIndex={alb.hype_index}
+                        tier={alb.tier}
+                        layout="inline"
+                        barWidthClassName="w-12"
+                      />
                     </td>
 
-                    {/* Column 7: Action */}
+                    {/* Column 6: Action */}
                     <td className="py-3 px-3 text-right">
                       <Link
                         to={`/albums/${alb.album_id}?window=${window}`}
@@ -495,10 +371,10 @@ export const ArtistDetail: React.FC = () => {
               {tracked_albums.length === 0 && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="p-6 text-center font-mono text-xs text-[#646464]"
                   >
-                    No tracked albums found for this artist.
+                    No albums recorded for this artist.
                   </td>
                 </tr>
               )}
@@ -507,40 +383,39 @@ export const ArtistDetail: React.FC = () => {
         </div>
       </div>
 
-      {/* Bottom Row (12 columns) — Child Releases Discography Ledger */}
+      {/* Bottom Row (12 columns) — 6-Column All Pressings Table */}
       <div
         className="bg-white border-[1.5px] border-[#121212] rounded-[6px] shadow-brutal-md p-5 col-span-12"
-        data-testid="table-child-releases"
+        data-testid="table-all-pressings"
       >
         <div className="flex items-center justify-between mb-1">
           <div className="font-grotesk font-bold text-lg text-[#121212] flex items-center gap-2">
             <Disc className="w-4 h-4 text-[#121212]" />
-            Child Releases Discography Ledger
+            All Pressings
           </div>
           <span className="font-mono text-xs text-[#646464]">
-            {child_releases.length} Recorded Pressings
+            {child_releases.length} {child_releases.length === 1 ? 'Pressing' : 'Pressings'}
           </span>
         </div>
         <p className="font-sans text-xs text-[#646464] mb-4">
-          All physical variants across {artist.name}&apos;s catalog with direct links to release intelligence.
+          All physical pressings across {artist.name}&apos;s discography with direct links to release details.
         </p>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#F7F3F0] border-b-[1.5px] border-[#121212] font-mono text-[11px] text-[#646464] uppercase">
-                <th className="py-2.5 px-3">Parent Album</th>
+                <th className="py-2.5 px-3">Album</th>
                 <th className="py-2.5 px-3">Variant</th>
                 <th className="py-2.5 px-3">Retailer</th>
-                <th className="py-2.5 px-3">Submissions</th>
-                <th className="py-2.5 px-3">Hype Velocity</th>
+                <th className="py-2.5 px-3">Engagement</th>
                 <th className="py-2.5 px-3">Hype Index</th>
                 <th className="py-2.5 px-3 text-right">Action</th>
               </tr>
             </thead>
             <tbody>
               {child_releases.map((rel) => {
-                const variantName = rel.variant || 'Standard Pressing'
+                const variantName = formatVariantLabel(rel.variant)
                 const retailerName = rel.retailer_name || 'Wide / Unspecified'
 
                 return (
@@ -548,7 +423,7 @@ export const ArtistDetail: React.FC = () => {
                     key={rel.release_id}
                     className="border-b border-[#E5E0DA] hover:bg-[#FAF7F5] transition-colors"
                   >
-                    {/* Column 1: Parent Album */}
+                    {/* Column 1: Album */}
                     <td className="py-3 px-3">
                       <Link
                         to={`/albums/${rel.album_id}?window=${window}`}
@@ -570,36 +445,22 @@ export const ArtistDetail: React.FC = () => {
                       {retailerName}
                     </td>
 
-                    {/* Column 4: Submissions */}
+                    {/* Column 4: Engagement */}
                     <td className="py-3 px-3 font-mono text-xs text-[#646464]">
-                      {rel.submission_count} submissions · {rel.score} pts · {rel.num_comments} comments
+                      {rel.submission_count} {rel.submission_count === 1 ? 'mention' : 'mentions'} · {rel.score} votes · {rel.num_comments} comments
                     </td>
 
-                    {/* Column 5: Hype Velocity */}
-                    <td className="py-3 px-3 font-mono text-xs text-[#121212]">
-                      +{rel.hype_velocity} pts/hr
-                    </td>
-
-                    {/* Column 6: Hype Index */}
+                    {/* Column 5: Hype Index */}
                     <td className="py-3 px-3">
-                      <div className="flex items-center gap-1.5">
-                        <TierBadge value={rel.hype_index} tier={rel.tier} />
-                        <div className="w-12 bg-[#E5E0DA] h-1.5 rounded-[1px] overflow-hidden border border-[#121212]">
-                          <div
-                            className={`h-full ${
-                              rel.tier === 'high'
-                                ? 'bg-[#68D391]'
-                                : rel.tier === 'moderate'
-                                ? 'bg-[#ECC94B]'
-                                : 'bg-[#646464]'
-                            }`}
-                            style={{ width: `${rel.hype_index}%` }}
-                          />
-                        </div>
-                      </div>
+                      <HypeIndexMeter
+                        hypeIndex={rel.hype_index}
+                        tier={rel.tier}
+                        layout="inline"
+                        barWidthClassName="w-12"
+                      />
                     </td>
 
-                    {/* Column 7: Action */}
+                    {/* Column 6: Action */}
                     <td className="py-3 px-3 text-right">
                       <Link
                         to={`/releases/${rel.release_id}?window=${window}`}
@@ -615,10 +476,10 @@ export const ArtistDetail: React.FC = () => {
               {child_releases.length === 0 && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="p-6 text-center font-mono text-xs text-[#646464]"
                   >
-                    No child releases recorded for this artist.
+                    No pressings recorded for this artist.
                   </td>
                 </tr>
               )}

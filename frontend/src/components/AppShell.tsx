@@ -32,7 +32,7 @@ export const AppShell: React.FC = () => {
 
         {/* Viewport Workspace */}
         <main
-          className="flex-1 w-full max-w-[1200px] p-4 sm:p-6 lg:p-8 mx-auto"
+          className="flex-1 w-full max-w-[1600px] p-4 sm:p-6 lg:p-8 mx-auto"
           data-testid="main-content"
         >
           <Outlet />
