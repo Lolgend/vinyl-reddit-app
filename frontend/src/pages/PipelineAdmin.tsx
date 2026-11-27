@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Info, RefreshCw, Server } from 'lucide-react'
 import { fetchAdminPipeline } from '../api/admin'
+import { EnrichmentQueueCard } from '../components/admin/EnrichmentQueueCard'
 import { ExtractionQueueCard } from '../components/admin/ExtractionQueueCard'
+import { FailedEnrichmentsTable } from '../components/admin/FailedEnrichmentsTable'
 import { PendingExtractionsTable } from '../components/admin/PendingExtractionsTable'
 import { PipelineLoopGrid } from '../components/admin/PipelineLoopGrid'
 import { PipelineRunsTable } from '../components/admin/PipelineRunsTable'
@@ -281,14 +283,13 @@ export const PipelineAdmin: React.FC = () => {
               className="grid grid-cols-1 xl:grid-cols-2 gap-5"
               data-testid="admin-queue-progress-slot"
             >
-              {/* #43 mounts <ExtractionQueueCard /> here */}
               {data.extraction_queue && (
                 <ExtractionQueueCard
                   queue={data.extraction_queue}
                   nowMs={effectiveNowMs}
                 />
               )}
-              {/* #44 mounts <EnrichmentQueueCard /> here */}
+              {data.enrichment_queue && <EnrichmentQueueCard queue={data.enrichment_queue} />}
             </section>
           )}
 
@@ -299,14 +300,19 @@ export const PipelineAdmin: React.FC = () => {
               className="flex flex-col gap-5"
               data-testid="admin-queue-tables-slot"
             >
-              {/* #43 mounts <PendingExtractionsTable /> here */}
               {data.extraction_queue && (
                 <PendingExtractionsTable
                   queue={data.extraction_queue}
                   nowMs={effectiveNowMs}
                 />
               )}
-              {/* #44 mounts <FailedEnrichmentsTable /> here */}
+              {data.enrichment_queue && (
+                <FailedEnrichmentsTable
+                  failedItems={data.enrichment_queue.failed_items}
+                  failedTotal={data.enrichment_queue.failed_total}
+                  nowMs={effectiveNowMs}
+                />
+              )}
             </section>
           )}
 

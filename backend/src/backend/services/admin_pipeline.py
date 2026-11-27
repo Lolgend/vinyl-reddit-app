@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from backend.schemas.admin import (
     AdminPipelineResponse,
     EffectiveProcessStatus,
-    EnrichmentQueueStatus,
     LoopName,
     LoopStatus,
     PipelineLoopInfo,
@@ -22,6 +21,7 @@ from backend.schemas.admin import (
     PipelineRunItem,
     RunOutcome,
 )
+from backend.services.admin_enrichment import get_enrichment_queue_status
 from backend.services.admin_extraction import get_extraction_queue_status
 from backend.services.admin_runs import get_pipeline_runs
 
@@ -173,7 +173,7 @@ def get_admin_pipeline_status(
     # Pluggable slots for parallel tickets #43 (Extraction Queue),
     # #44 (Enrichment Queue), and #45 (Pipeline Run History).
     extraction_queue = get_extraction_queue_status(session)
-    enrichment_queue: EnrichmentQueueStatus | None = None
+    enrichment_queue = get_enrichment_queue_status(session, now_utc)
     runs: list[PipelineRunItem] = (
         get_pipeline_runs(
             session,
