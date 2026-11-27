@@ -23,6 +23,7 @@ from backend.schemas.admin import (
     PipelineRunItem,
     RunOutcome,
 )
+from backend.services.admin_enrichment import get_enrichment_queue_status
 
 DEFAULT_PROCESS_NAME = "default"
 MIN_STALE_THRESHOLD_SECONDS = 90
@@ -172,7 +173,7 @@ def get_admin_pipeline_status(
     # Pluggable slots for parallel tickets #43 (Extraction Queue),
     # #44 (Enrichment Queue), and #45 (Pipeline Run History).
     extraction_queue: ExtractionQueueStatus | None = None
-    enrichment_queue: EnrichmentQueueStatus | None = None
+    enrichment_queue: EnrichmentQueueStatus | None = get_enrichment_queue_status(session, now_utc)
     runs: list[PipelineRunItem] = []
 
     return AdminPipelineResponse(
