@@ -110,7 +110,7 @@ export const PendingExtractionsTable: React.FC<PendingExtractionsTableProps> = (
                   </td>
                   <td className="py-3 px-4 whitespace-nowrap">
                     {item.flair ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-[4px] bg-canvas border border-ink-primary font-mono text-[11px] font-semibold text-ink-primary">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-[4px] bg-canvas border-strong font-mono text-[11px] font-semibold text-ink-primary">
                         {item.flair}
                       </span>
                     ) : (
@@ -129,7 +129,7 @@ export const PendingExtractionsTable: React.FC<PendingExtractionsTableProps> = (
                     </div>
                   </td>
                   <td className="py-3 px-4 whitespace-nowrap text-right font-mono text-xs font-bold text-ink-primary">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-[4px] bg-hype-moderate/35 border border-ink-primary">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-[4px] bg-hype-moderate/35 border-strong">
                       {formatWaitingDuration(item.created_utc, nowMs)}
                     </span>
                   </td>

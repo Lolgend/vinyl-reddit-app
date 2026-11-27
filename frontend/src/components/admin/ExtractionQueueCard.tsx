@@ -2,50 +2,40 @@ import React from 'react'
 import { CheckCircle2, Clock } from 'lucide-react'
 import type { ExtractionQueueStatus } from '../../types/admin'
 import { formatRelativeToNow, formatWaitingDuration } from '../../utils/adminFormat'
+import { StackedProgressBar, type StackedProgressSegment } from './StackedProgressBar'
 
 interface ExtractionQueueCardProps {
   queue: ExtractionQueueStatus
   nowMs: number
 }
 
-function segmentWidthPct(count: number, total: number): string {
-  if (total <= 0 || count <= 0) return '0%'
-  const pct = (count / total) * 100
-  return `${Number(pct.toFixed(4))}%`
-}
-
 export const ExtractionQueueCard: React.FC<ExtractionQueueCardProps> = ({
   queue,
   nowMs,
 }) => {
-  const segments = [
+  const segments: StackedProgressSegment[] = [
     {
       key: 'extracted',
-      testId: 'extraction-bar-extracted',
+      barTestId: 'extraction-bar-extracted',
       label: 'Extracted Releases',
       count: queue.extracted_releases,
       colorClass: 'bg-hype-high',
-      width: segmentWidthPct(queue.extracted_releases, queue.total),
     },
     {
       key: 'filtered',
-      testId: 'extraction-bar-filtered',
+      barTestId: 'extraction-bar-filtered',
       label: 'Filtered Non-Releases',
       count: queue.filtered_non_releases,
       colorClass: 'bg-accent-sand',
-      width: segmentWidthPct(queue.filtered_non_releases, queue.total),
     },
     {
       key: 'pending',
-      testId: 'extraction-bar-pending',
+      barTestId: 'extraction-bar-pending',
       label: 'Pending',
       count: queue.pending,
       colorClass: 'bg-hype-moderate',
-      width: segmentWidthPct(queue.pending, queue.total),
     },
   ]
-
-  const visibleSegments = segments.filter((seg) => seg.count > 0)
 
   return (
     <article
@@ -74,56 +64,17 @@ export const ExtractionQueueCard: React.FC<ExtractionQueueCardProps> = ({
           </div>
         </div>
 
-        {/* 3-Segment Stacked Neo-Brutalist Progress Bar */}
-        <div className="flex flex-col gap-2">
-          <div
-            role="progressbar"
-            aria-label="Extraction Queue completion"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={queue.completion_pct}
-            className="h-6 w-full rounded-[4px] border-strong bg-canvas overflow-hidden flex"
-            data-testid="extraction-progress-bar"
-          >
-            {visibleSegments.map((seg, idx) => (
-              <div
-                key={seg.key}
-                data-testid={seg.testId}
-                title={`${seg.label}: ${seg.count.toLocaleString()}`}
-                style={{ width: seg.width }}
-                className={`h-full ${seg.colorClass} transition-all duration-300 ${
-                  idx < visibleSegments.length - 1 ? 'border-r-[1.5px] border-ink-primary' : ''
-                }`}
-              />
-            ))}
-          </div>
-
-          {/* Exact Counts Legend */}
-          <dl
-            className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1"
-            data-testid="extraction-queue-legend"
-          >
-            {segments.map((seg) => (
-              <div
-                key={seg.key}
-                className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-[4px] bg-canvas border border-border-hairline"
-              >
-                <dt className="flex items-center gap-1.5 min-w-0">
-                  <span
-                    className={`w-3 h-3 rounded-[2px] border-[1.5px] border-ink-primary shrink-0 ${seg.colorClass}`}
-                    aria-hidden="true"
-                  />
-                  <span className="font-sans text-xs text-ink-secondary truncate">
-                    {seg.label}
-                  </span>
-                </dt>
-                <dd className="font-mono text-xs font-bold text-ink-primary shrink-0">
-                  {seg.count.toLocaleString()}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </div>
+        {/* 3-Segment Stacked Neo-Brutalist Progress Bar & Legend */}
+        <StackedProgressBar
+          segments={segments}
+          total={queue.total}
+          ariaLabel="Extraction Queue completion"
+          valueNow={queue.completion_pct}
+          barTestId="extraction-progress-bar"
+          legendTestId="extraction-queue-legend"
+          legendGridClassName="grid grid-cols-1 sm:grid-cols-3 gap-2"
+          legendLayout="inline"
+        />
       </div>
 
       {/* Queue Lag or Clear Status Footer */}

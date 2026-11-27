@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 from typing import Any
 
 import psycopg.errors
+from admin_test_helpers import FakeResult, make_process_row, parse_iso
 from fastapi.testclient import TestClient
 from reddit_scrape.models import Submission
 from sqlalchemy import create_engine
@@ -17,30 +17,6 @@ from sqlalchemy.pool import StaticPool
 from backend.api.admin import get_utc_now
 from backend.db import get_db
 from backend.main import app
-
-
-def _parse_iso(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-class _FakeScalarResult:
-    def __init__(self, items: list[Any]) -> None:
-        self._items = items
-
-    def all(self) -> list[Any]:
-        return list(self._items)
-
-
-class _FakeTelemetryResult:
-    def __init__(self, *, scalar_item: Any = None, scalar_items: list[Any] | None = None) -> None:
-        self._scalar_item = scalar_item
-        self._scalar_items = scalar_items if scalar_items is not None else []
-
-    def scalar_one_or_none(self) -> Any:
-        return self._scalar_item
-
-    def scalars(self) -> _FakeScalarResult:
-        return _FakeScalarResult(self._scalar_items)
 
 
 class _HybridSubmissionSession:
@@ -72,19 +48,19 @@ class _HybridSubmissionSession:
             if self._telemetry_error is not None:
                 self._aborted = True
                 raise self._telemetry_error
-            return _FakeTelemetryResult(scalar_item=self._process_row)
+            return FakeResult(scalar_item=self._process_row)
         if "pipeline_loop_states" in sql:
             if self._telemetry_error is not None:
                 self._aborted = True
                 raise self._telemetry_error
-            return _FakeTelemetryResult(scalar_items=self._loop_rows)
+            return FakeResult(scalar_items=self._loop_rows)
         if "pipeline_runs" in sql:
             if self._telemetry_error is not None:
                 self._aborted = True
                 raise self._telemetry_error
-            return _FakeTelemetryResult(scalar_items=[])
+            return FakeResult(scalar_items=[])
         if "FROM albums" in sql:
-            return _FakeTelemetryResult(scalar_items=[])
+            return FakeResult(scalar_items=[])
         return self._sqlite_session.execute(statement, *args, **kwargs)
 
     def rollback(self) -> None:
@@ -233,7 +209,7 @@ def test_extraction_queue_counts_completion_and_oldest_first_pending_items() -> 
     assert eq["filtered_non_releases"] == 1
     assert eq["total"] == 6
     assert eq["completion_pct"] == 50.0
-    assert _parse_iso(eq["oldest_pending_at"]) == oldest_time
+    assert parse_iso(eq["oldest_pending_at"]) == oldest_time
 
     items = eq["pending_items"]
     assert [item["id"] for item in items] == ["t3_pend_old", "t3_pend_mid", "t3_pend_new"]
@@ -306,7 +282,7 @@ def test_extraction_queue_caps_pending_items_at_25_oldest_first_with_tie_breaker
     assert eq["pending"] == 30
     assert eq["total"] == 30
     assert eq["completion_pct"] == 0.0
-    assert _parse_iso(eq["oldest_pending_at"]) == base_time
+    assert parse_iso(eq["oldest_pending_at"]) == base_time
 
     items = eq["pending_items"]
     assert len(items) == 25
@@ -408,17 +384,7 @@ def test_extraction_queue_populated_both_when_telemetry_healthy_and_missing() ->
             ),
         ]
 
-    process_row = SimpleNamespace(
-        process_name="default",
-        status="running",
-        run_mode="continuous",
-        host="scraper-host-01",
-        pid=2222,
-        heartbeat_interval_seconds=30,
-        started_at=fixed_now - timedelta(hours=1),
-        last_heartbeat_at=fixed_now - timedelta(seconds=10),
-        stopped_at=None,
-    )
+    process_row = make_process_row(now=fixed_now, pid=2222)
 
     client = TestClient(app)
 
@@ -467,7 +433,7 @@ def test_extraction_queue_populated_both_when_telemetry_healthy_and_missing() ->
     assert degraded_data["extraction_queue"]["extracted_releases"] == 1
     assert degraded_data["extraction_queue"]["total"] == 2
     assert degraded_data["extraction_queue"]["completion_pct"] == 50.0
-    assert _parse_iso(degraded_data["extraction_queue"]["oldest_pending_at"]) == oldest
+    assert parse_iso(degraded_data["extraction_queue"]["oldest_pending_at"]) == oldest
     assert degraded_data["extraction_queue"]["pending_items"][0]["id"] == "t3_degraded_pending"
 
     # 3) Empty telemetry table (process_row=None -> telemetry_available=False, extraction_queue intact)
@@ -505,10 +471,10 @@ def test_extraction_queue_live_readonly_postgresql() -> None:
     assert 0.0 <= eq["completion_pct"] <= 100.0
     assert len(eq["pending_items"]) <= 25
 
-    created_times = [_parse_iso(item["created_utc"]) for item in eq["pending_items"]]
+    created_times = [parse_iso(item["created_utc"]) for item in eq["pending_items"]]
     assert created_times == sorted(created_times)
     if eq["pending_items"]:
-        assert _parse_iso(eq["oldest_pending_at"]) == created_times[0]
+        assert parse_iso(eq["oldest_pending_at"]) == created_times[0]
     else:
         assert eq["oldest_pending_at"] is None
 

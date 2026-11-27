@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 from reddit_scrape.models import Album
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from backend.schemas.admin import (
     FailedEnrichmentItem,
     FailedEnrichmentState,
 )
+from backend.services.admin_common import ensure_utc
 
 MAX_ENRICHMENT_ATTEMPTS = 5
 MAX_FAILED_ITEMS = 25
@@ -27,12 +29,28 @@ _FAILED_STATE_PRIORITY: dict[FailedEnrichmentState, int] = {
 }
 
 
-def _ensure_utc(dt: datetime | None) -> datetime | None:
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+class _FailedCandidate(NamedTuple):
+    item: FailedEnrichmentItem
+    created_at: datetime | None
+
+
+def _failed_item_sort_key(
+    candidate: _FailedCandidate,
+) -> tuple[int, tuple[int, float], tuple[int, float], str]:
+    """Prioritize exhausted -> due -> backoff, then last_enriched_at DESC NULLS FIRST, created_at ASC, album_id ASC."""
+    item = candidate.item
+    last_enriched_key = (
+        (0, 0.0) if item.last_enriched_at is None else (1, -item.last_enriched_at.timestamp())
+    )
+    created_key = (
+        (0, candidate.created_at.timestamp()) if candidate.created_at is not None else (1, 0.0)
+    )
+    return (
+        _FAILED_STATE_PRIORITY[item.state],
+        last_enriched_key,
+        created_key,
+        item.album_id,
+    )
 
 
 def _backoff_duration(attempts: int) -> timedelta:
@@ -45,7 +63,7 @@ def get_enrichment_queue_status(
     now: datetime | None = None,
 ) -> EnrichmentQueueStatus:
     """Compute live Enrichment Queue counts, backoff states, and top 25 failed albums."""
-    now_utc = _ensure_utc(now) or datetime.now(timezone.utc)
+    now_utc = ensure_utc(now) or datetime.now(timezone.utc)
     partial_recheck_cutoff = now_utc - PARTIAL_RECHECK_INTERVAL
     partial_age_cutoff = now_utc - PARTIAL_MAX_AGE
 
@@ -72,14 +90,12 @@ def get_enrichment_queue_status(
     failed_backoff = 0
     failed_exhausted = 0
 
-    ranked_failed: list[
-        tuple[int, tuple[int, float], tuple[int, float], str, FailedEnrichmentItem]
-    ] = []
+    failed_candidates: list[_FailedCandidate] = []
 
     for album in albums:
         status = album.discogs_status
-        last_enriched_utc = _ensure_utc(album.last_enriched_at)
-        created_utc = _ensure_utc(album.created_at)
+        last_enriched_utc = ensure_utc(album.last_enriched_at)
+        created_utc = ensure_utc(album.created_at)
 
         if status == "pending":
             pending += 1
@@ -118,9 +134,8 @@ def get_enrichment_queue_status(
                     state = "backoff"
                     failed_backoff += 1
 
-            album_id_str = str(album.id)
             item = FailedEnrichmentItem(
-                album_id=album_id_str,
+                album_id=str(album.id),
                 combined_artist=album.combined_artist,
                 album_title=album.title,
                 enrichment_attempts=attempts,
@@ -130,22 +145,10 @@ def get_enrichment_queue_status(
                 next_retry_at=next_retry_at,
                 state=state,
             )
-            last_enriched_sort = (
-                (0, 0.0) if last_enriched_utc is None else (1, -last_enriched_utc.timestamp())
-            )
-            created_sort = (0, created_utc.timestamp()) if created_utc is not None else (1, 0.0)
-            ranked_failed.append(
-                (
-                    _FAILED_STATE_PRIORITY[state],
-                    last_enriched_sort,
-                    created_sort,
-                    album_id_str,
-                    item,
-                )
-            )
+            failed_candidates.append(_FailedCandidate(item=item, created_at=created_utc))
 
-    ranked_failed.sort(key=lambda entry: (entry[0], entry[1], entry[2], entry[3]))
-    failed_items = [entry[4] for entry in ranked_failed[:MAX_FAILED_ITEMS]]
+    failed_candidates.sort(key=_failed_item_sort_key)
+    failed_items = [candidate.item for candidate in failed_candidates[:MAX_FAILED_ITEMS]]
 
     failed_total = failed_due + failed_backoff + failed_exhausted
     total = pending + matched + partial_matched + not_found + failed_total

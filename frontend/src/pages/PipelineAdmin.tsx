@@ -40,12 +40,13 @@ const LIVENESS_BADGE_MAP: Record<
 }
 
 const POLL_INTERVAL_MS = 15_000
+const RUN_LIMIT = 50
 
 export const PipelineAdmin: React.FC = () => {
   const [runStage, setRunStage] = useState<LoopName | null>(null)
   const [runOutcome, setRunOutcome] = useState<RunOutcome | null>(null)
-  const [runLimit] = useState<number>(50)
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
+  const [lastValidServerOffsetMs, setLastValidServerOffsetMs] = useState<number>(0)
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -58,13 +59,14 @@ export const PipelineAdmin: React.FC = () => {
     data,
     isLoading,
     isFetching,
+    isPlaceholderData,
     isError,
     error,
     dataUpdatedAt,
     refetch,
   } = useQuery<AdminPipelineResponse>({
-    queryKey: ['admin-pipeline', runStage, runOutcome, runLimit],
-    queryFn: () => fetchAdminPipeline({ runStage, runOutcome, runLimit }),
+    queryKey: ['admin-pipeline', runStage, runOutcome, RUN_LIMIT],
+    queryFn: () => fetchAdminPipeline({ runStage, runOutcome, runLimit: RUN_LIMIT }),
     placeholderData: keepPreviousData,
     refetchInterval: POLL_INTERVAL_MS,
     refetchIntervalInBackground: false,
@@ -72,12 +74,25 @@ export const PipelineAdmin: React.FC = () => {
   })
 
   // Compute server/client clock skew offset so countdowns stay truthful under skew
-  // while remaining deterministic under fake timers (where server_time === Date.now()).
-  const serverTimeMs = data ? Date.parse(data.server_time) : NaN
+  // and preserve the last valid offset across placeholderData filter transitions.
+  const liveServerOffsetMs =
+    !isPlaceholderData && data?.server_time && dataUpdatedAt > 0
+      ? Date.parse(data.server_time) - dataUpdatedAt
+      : null
+
+  if (
+    liveServerOffsetMs !== null &&
+    !Number.isNaN(liveServerOffsetMs) &&
+    liveServerOffsetMs !== lastValidServerOffsetMs
+  ) {
+    setLastValidServerOffsetMs(liveServerOffsetMs)
+  }
+
   const serverOffsetMs =
-    !Number.isNaN(serverTimeMs) && dataUpdatedAt > 0
-      ? serverTimeMs - dataUpdatedAt
-      : 0
+    liveServerOffsetMs !== null && !Number.isNaN(liveServerOffsetMs)
+      ? liveServerOffsetMs
+      : lastValidServerOffsetMs
+
   const effectiveNowMs = nowMs + serverOffsetMs
 
   const livenessStyle = data

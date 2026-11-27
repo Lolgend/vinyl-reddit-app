@@ -2,21 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from reddit_scrape.models import Submission
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.schemas.admin import ExtractionQueueStatus, PendingExtractionItem
+from backend.services.admin_common import ensure_utc
 
 PENDING_EXTRACTION_LIMIT = 25
-
-
-def _ensure_utc(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
 
 
 def _count_submissions(
@@ -60,8 +53,8 @@ def get_extraction_queue_status(session: Session) -> ExtractionQueueStatus:
             title=row.title,
             flair=row.flair,
             url=row.url,
-            created_utc=_ensure_utc(row.created_utc),
-            ingested_at=_ensure_utc(row.created_at),
+            created_utc=ensure_utc(row.created_utc),
+            ingested_at=ensure_utc(row.created_at),
         )
         for row in pending_rows
     ]

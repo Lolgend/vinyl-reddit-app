@@ -2,6 +2,7 @@ import type { LoopName } from '../types/admin'
 
 export interface LoopDisplayMeta {
   title: string
+  shortLabel: string
   tag: string
   description: string
 }
@@ -9,21 +10,25 @@ export interface LoopDisplayMeta {
 export const LOOP_DISPLAY_META: Record<LoopName, LoopDisplayMeta> = {
   discovery_poll: {
     title: 'Discovery Poll',
+    shortLabel: 'Discovery Poll',
     tag: '/new',
     description: 'Fetches newly posted community announcements',
   },
   tracking_poll: {
     title: 'Tracking Poll',
+    shortLabel: 'Tracking Poll',
     tag: '/hot',
     description: 'Refreshes engagement on active threads',
   },
   extraction_worker: {
     title: 'Extraction Queue',
+    shortLabel: 'Extraction',
     tag: 'worker',
     description: 'Parses release-eligible posts into catalog records',
   },
   enrichment_worker: {
     title: 'Enrichment Queue',
+    shortLabel: 'Enrichment',
     tag: 'worker',
     description: 'Reconciles external discography metadata',
   },

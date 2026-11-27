@@ -182,6 +182,8 @@ describe('Pipeline Admin Shell, Navigation & Liveness (/admin)', () => {
     expect(screen.getByTestId('process-host-pid')).toHaveTextContent('12345')
 
     expect(screen.getByTestId('loop-card-discovery_poll')).toHaveTextContent('Discovery Poll')
+    expect(screen.getByTestId('loop-card-discovery_poll')).toHaveTextContent('Last Started')
+    expect(screen.getByTestId('loop-last-started-discovery_poll')).not.toHaveTextContent('Never')
     expect(screen.getByTestId('loop-card-discovery_poll')).toHaveTextContent('4 inserted')
     expect(screen.getByTestId('loop-card-discovery_poll')).toHaveTextContent('3.0s')
 
@@ -198,6 +200,7 @@ describe('Pipeline Admin Shell, Navigation & Liveness (/admin)', () => {
 
     expect(screen.getByTestId('loop-card-enrichment_worker')).toHaveTextContent('Enrichment Queue')
     expect(screen.getByTestId('loop-card-enrichment_worker')).toHaveTextContent('DISABLED')
+    expect(screen.getByTestId('loop-last-started-enrichment_worker')).toHaveTextContent('Never')
     expect(screen.getByTestId('loop-countdown-enrichment_worker')).toHaveTextContent('—')
   })
 
@@ -475,5 +478,108 @@ describe('Pipeline Admin Shell, Navigation & Liveness (/admin)', () => {
     fireEvent.click(screen.getByTestId('admin-retry-btn'))
     expect(await screen.findByTestId('process-liveness-badge')).toHaveTextContent('ONLINE')
     expect(screen.queryByTestId('admin-error-banner')).not.toBeInTheDocument()
+  })
+
+  it('displays Last Started on first-ever running loop cycles even when last_completed_at is null', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(BASE_NOW))
+
+    const payload = makeHealthyPayload({
+      loops: [
+        {
+          loop_name: 'discovery_poll',
+          status: 'running',
+          interval_seconds: 300,
+          last_started_at: '2026-11-27T11:59:50.000Z',
+          last_completed_at: null,
+          next_run_at: null,
+          last_duration_ms: null,
+          last_run_stats: null,
+          last_error: null,
+        },
+      ],
+    })
+    stubAdminFetch(() => ({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(payload),
+    }) as Response)
+
+    renderAdminApp('/admin')
+
+    await act(async () => {
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    const card = screen.getByTestId('loop-card-discovery_poll')
+    expect(card).toHaveTextContent('Last Started')
+    expect(screen.getByTestId('loop-last-started-discovery_poll')).toHaveTextContent('10s ago')
+    expect(card).toHaveTextContent('Last Completed')
+    expect(card).toHaveTextContent('Never')
+  })
+
+  it('preserves serverOffsetMs across placeholderData filter refetches under client/server clock skew', async () => {
+    vi.useFakeTimers()
+    // Client clock is skewed 5 minutes behind server_time (BASE_NOW = 12:00:00Z)
+    vi.setSystemTime(new Date('2026-11-27T11:55:00.000Z'))
+
+    let resolveFiltered!: (resp: Response) => void
+    const payload = makeHealthyPayload({
+      loops: [
+        {
+          loop_name: 'discovery_poll',
+          status: 'sleeping',
+          interval_seconds: 300,
+          last_started_at: '2026-11-27T11:55:00.000Z',
+          last_completed_at: '2026-11-27T11:55:03.000Z',
+          // 45 seconds after server_time (12:00:00Z)
+          next_run_at: '2026-11-27T12:00:45.000Z',
+          last_duration_ms: 3000,
+          last_run_stats: { inserted: 1, updated: 0, skipped: 0 },
+          last_error: null,
+        },
+      ],
+    })
+
+    stubAdminFetch((url) => {
+      if (url.includes('run_stage=discovery_poll')) {
+        return new Promise<Response>((resolve) => {
+          resolveFiltered = resolve
+        })
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(payload),
+      } as Response
+    })
+
+    renderAdminApp('/admin')
+
+    await act(async () => {
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    const countdown = screen.getByTestId('loop-countdown-discovery_poll')
+    // Skewed client clock corrected by +5m serverOffsetMs -> 45s remaining (not 5m 45s)
+    expect(countdown).toHaveTextContent('45s')
+
+    // Trigger filter refetch; while pending, placeholderData keeps previous data with dataUpdatedAt=0
+    fireEvent.click(screen.getByTestId('runs-stage-pill-discovery_poll'))
+    expect(countdown).toHaveTextContent('45s')
+    expect(countdown).not.toHaveTextContent('5m 45s')
+
+    // Cleanly resolve the pending filter request
+    await act(async () => {
+      resolveFiltered({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(payload),
+      } as Response)
+      await Promise.resolve()
+    })
+    expect(countdown).toHaveTextContent('45s')
   })
 })

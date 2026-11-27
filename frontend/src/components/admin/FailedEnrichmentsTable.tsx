@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Clock } from 'lucide-react'
 import type { FailedEnrichmentItem, FailedEnrichmentState } from '../../types/admin'
@@ -8,6 +8,8 @@ import {
   formatRelativeToNow,
 } from '../../utils/adminFormat'
 import { FOCUS_RING_CLASS } from '../../utils/uiClasses'
+
+const ERROR_TRUNCATE_LENGTH = 120
 
 interface FailedEnrichmentsTableProps {
   failedItems: FailedEnrichmentItem[]
@@ -26,6 +28,11 @@ export const FailedEnrichmentsTable: React.FC<FailedEnrichmentsTableProps> = ({
   failedTotal,
   nowMs,
 }) => {
+  const [expandedErrors, setExpandedErrors] = useState<Record<string, boolean>>({})
+
+  const toggleErrorExpanded = (albumId: string) => {
+    setExpandedErrors((prev) => ({ ...prev, [albumId]: !prev[albumId] }))
+  }
   const countLabel =
     failedTotal > failedItems.length
       ? `SHOWING ${failedItems.length} OF ${failedTotal.toLocaleString()} FAILED`
@@ -100,6 +107,13 @@ export const FailedEnrichmentsTable: React.FC<FailedEnrichmentsTableProps> = ({
                 const remainingSec = !Number.isNaN(targetMs)
                   ? Math.ceil((targetMs - nowMs) / 1000)
                   : null
+                const rawError = item.enrichment_error || 'No error details recorded'
+                const isTruncatable = rawError.length > ERROR_TRUNCATE_LENGTH
+                const isExpanded = Boolean(expandedErrors[item.album_id])
+                const displayedError =
+                  isTruncatable && !isExpanded
+                    ? `${rawError.slice(0, ERROR_TRUNCATE_LENGTH).trimEnd()}…`
+                    : rawError
 
                 return (
                   <tr
@@ -131,9 +145,24 @@ export const FailedEnrichmentsTable: React.FC<FailedEnrichmentsTableProps> = ({
 
                     {/* Error Details */}
                     <td className="py-3 px-4 max-w-md">
-                      <p className="font-mono text-[11px] text-ink-primary break-words leading-relaxed">
-                        {item.enrichment_error || 'No error details recorded'}
+                      <p
+                        className="font-mono text-[11px] text-ink-primary break-words leading-relaxed"
+                        title={isTruncatable && !isExpanded ? rawError : undefined}
+                        data-testid={`failed-enrichment-error-${item.album_id}`}
+                      >
+                        {displayedError}
                       </p>
+                      {isTruncatable && (
+                        <button
+                          type="button"
+                          aria-expanded={isExpanded}
+                          onClick={() => toggleErrorExpanded(item.album_id)}
+                          className={`mt-1 inline-flex items-center font-mono text-[11px] font-bold text-ink-primary underline decoration-1 underline-offset-2 hover:text-ink-secondary cursor-pointer rounded-[2px] ${FOCUS_RING_CLASS}`}
+                          data-testid={`failed-enrichment-toggle-${item.album_id}`}
+                        >
+                          {isExpanded ? 'Show less' : 'Show more'}
+                        </button>
+                      )}
                     </td>
 
                     {/* Last Attempt */}

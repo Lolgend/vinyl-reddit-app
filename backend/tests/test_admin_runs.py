@@ -4,118 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from typing import Any
 
 import psycopg.errors
 import pytest
+from admin_test_helpers import FakeAdminSession, make_process_row, parse_iso
 from fastapi.testclient import TestClient
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import ProgrammingError
 
 from backend.api.admin import get_utc_now
 from backend.db import get_db
 from backend.main import app
-
-
-def _parse_iso(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-class _FakeScalarResult:
-    def __init__(self, items: list[Any]) -> None:
-        self._items = items
-
-    def all(self) -> list[Any]:
-        return list(self._items)
-
-
-class _FakeResult:
-    def __init__(
-        self,
-        *,
-        scalar_item: Any = None,
-        scalar_items: list[Any] | None = None,
-    ) -> None:
-        self._scalar_item = scalar_item
-        self._scalar_items = scalar_items if scalar_items is not None else []
-
-    def scalar_one_or_none(self) -> Any:
-        return self._scalar_item
-
-    def scalars(self) -> _FakeScalarResult:
-        return _FakeScalarResult(self._scalar_items)
-
-
-class _FakeRunsSession:
-    """Controlled read-only Session evaluating compiled PostgreSQL queries on pipeline_runs."""
-
-    def __init__(
-        self,
-        *,
-        process_row: Any = None,
-        loop_rows: list[Any] | None = None,
-        run_rows: list[Any] | None = None,
-        runs_error: Exception | None = None,
-    ) -> None:
-        self._process_row = process_row
-        self._loop_rows = loop_rows if loop_rows is not None else []
-        self._run_rows = list(run_rows) if run_rows is not None else []
-        self._runs_error = runs_error
-        self.rollback_calls = 0
-        self.last_runs_sql: str | None = None
-        self.last_runs_params: dict[str, Any] = {}
-
-    def execute(self, statement: Any, *args: Any, **kwargs: Any) -> _FakeResult:
-        compiled = statement.compile(dialect=postgresql.dialect())
-        sql = str(compiled)
-        params = dict(compiled.params)
-
-        if "FROM pipeline_process_status" in sql:
-            return _FakeResult(scalar_item=self._process_row)
-
-        if "FROM pipeline_loop_states" in sql:
-            return _FakeResult(scalar_items=self._loop_rows)
-
-        if "FROM pipeline_runs" in sql:
-            self.last_runs_sql = sql
-            self.last_runs_params = params
-            if self._runs_error is not None:
-                raise self._runs_error
-
-            rows = list(self._run_rows)
-            for key, value in params.items():
-                if key.startswith("loop_name"):
-                    rows = [r for r in rows if r.loop_name == value]
-                elif key.startswith("status"):
-                    rows = [r for r in rows if r.status == value]
-
-            if "ORDER BY pipeline_runs.started_at DESC" in sql:
-                rows.sort(key=lambda r: (r.started_at, r.id), reverse=True)
-
-            limit_val = next((v for k, v in params.items() if "param" in k), None)
-            if isinstance(limit_val, int):
-                rows = rows[:limit_val]
-
-            return _FakeResult(scalar_items=rows)
-
-        return _FakeResult()
-
-    def rollback(self) -> None:
-        self.rollback_calls += 1
-
-
-def _make_process_row(now: datetime) -> SimpleNamespace:
-    return SimpleNamespace(
-        process_name="default",
-        status="running",
-        run_mode="continuous",
-        host="scraper-host-01",
-        pid=12345,
-        heartbeat_interval_seconds=30,
-        started_at=now - timedelta(hours=2),
-        last_heartbeat_at=now - timedelta(seconds=10),
-        stopped_at=None,
-    )
 
 
 def _make_run_row(
@@ -176,8 +74,8 @@ def test_admin_pipeline_returns_runs_newest_first_with_all_fields(client: TestCl
     )
 
     # Pass unsorted rows so ORDER BY started_at DESC is actually exercised
-    fake_session = _FakeRunsSession(
-        process_row=_make_process_row(fixed_now),
+    fake_session = FakeAdminSession(
+        process_row=make_process_row(now=fixed_now),
         run_rows=[older_run, newer_error_run],
     )
     app.dependency_overrides[get_db] = lambda: fake_session
@@ -194,8 +92,8 @@ def test_admin_pipeline_returns_runs_newest_first_with_all_fields(client: TestCl
     first = runs[0]
     assert first["stage"] == "tracking_poll"
     assert first["outcome"] == "error"
-    assert _parse_iso(first["started_at"]) == newer_error_run.started_at
-    assert _parse_iso(first["completed_at"]) == newer_error_run.completed_at
+    assert parse_iso(first["started_at"]) == newer_error_run.started_at
+    assert parse_iso(first["completed_at"]) == newer_error_run.completed_at
     assert first["duration_ms"] == 850
     assert first["stats"] is None
     assert first["error_message"] == "Reddit HTTP 429 rate limited"
@@ -220,8 +118,8 @@ def test_admin_pipeline_runs_degrades_to_empty_list_when_table_missing(
         {},
         psycopg.errors.UndefinedTable('relation "pipeline_runs" does not exist'),
     )
-    fake_session = _FakeRunsSession(
-        process_row=_make_process_row(fixed_now),
+    fake_session = FakeAdminSession(
+        process_row=make_process_row(now=fixed_now),
         runs_error=undefined_err,
     )
     app.dependency_overrides[get_db] = lambda: fake_session
@@ -276,8 +174,8 @@ def test_admin_pipeline_runs_filters_by_stage_outcome_and_limit(client: TestClie
             stats={"inserted": 4, "updated": 0, "skipped": 10},
         ),
     ]
-    fake_session = _FakeRunsSession(
-        process_row=_make_process_row(fixed_now),
+    fake_session = FakeAdminSession(
+        process_row=make_process_row(now=fixed_now),
         run_rows=run_rows,
     )
     app.dependency_overrides[get_db] = lambda: fake_session
@@ -316,8 +214,8 @@ def test_admin_pipeline_runs_default_limit_is_50_and_max_is_100(client: TestClie
         )
         for idx in range(1, 111)
     ]
-    fake_session = _FakeRunsSession(
-        process_row=_make_process_row(fixed_now),
+    fake_session = FakeAdminSession(
+        process_row=make_process_row(now=fixed_now),
         run_rows=run_rows,
     )
     app.dependency_overrides[get_db] = lambda: fake_session
@@ -358,7 +256,7 @@ def test_admin_pipeline_runs_rejects_invalid_query_params_with_422(
 ) -> None:
     """Invalid run_stage, run_outcome, or run_limit query parameters return HTTP 422."""
     fixed_now = datetime(2026, 11, 27, 12, 0, 0, tzinfo=timezone.utc)
-    fake_session = _FakeRunsSession(process_row=_make_process_row(fixed_now))
+    fake_session = FakeAdminSession(process_row=make_process_row(now=fixed_now))
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:
@@ -372,7 +270,7 @@ def test_admin_pipeline_runs_rejects_invalid_query_params_with_422(
 def test_admin_pipeline_runs_empty_table_returns_empty_list(client: TestClient) -> None:
     """Empty pipeline_runs table returns HTTP 200 with runs=[]."""
     fixed_now = datetime(2026, 11, 27, 12, 0, 0, tzinfo=timezone.utc)
-    fake_session = _FakeRunsSession(process_row=_make_process_row(fixed_now), run_rows=[])
+    fake_session = FakeAdminSession(process_row=make_process_row(now=fixed_now), run_rows=[])
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:

@@ -5,106 +5,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from typing import Any
 
 import psycopg.errors
 import pytest
+from admin_test_helpers import FakeAdminSession, make_process_row, parse_iso
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import ProgrammingError
 
 from backend.api.admin import get_utc_now
 from backend.db import get_db
 from backend.main import app
-
-
-def _parse_iso(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-class _FakeScalarResult:
-    def __init__(self, items: list[Any]) -> None:
-        self._items = items
-
-    def all(self) -> list[Any]:
-        return list(self._items)
-
-
-class _FakeResult:
-    def __init__(
-        self,
-        *,
-        scalar_item: Any = None,
-        scalar_items: list[Any] | None = None,
-    ) -> None:
-        self._scalar_item = scalar_item
-        self._scalar_items = scalar_items if scalar_items is not None else []
-
-    def scalar_one_or_none(self) -> Any:
-        return self._scalar_item
-
-    def scalars(self) -> _FakeScalarResult:
-        return _FakeScalarResult(self._scalar_items)
-
-
-class _FakeEnrichmentSession:
-    """Controlled read-only Session stub for deterministic Enrichment Queue HTTP-seam tests."""
-
-    def __init__(
-        self,
-        *,
-        albums: list[Any],
-        process_row: Any = None,
-        loop_rows: list[Any] | None = None,
-        telemetry_error: Exception | None = None,
-    ) -> None:
-        self._albums = albums
-        self._process_row = process_row
-        self._loop_rows = loop_rows if loop_rows is not None else []
-        self._telemetry_error = telemetry_error
-        self._in_failed_tx = False
-        self.rollback_calls = 0
-
-    def execute(self, statement: Any, *args: Any, **kwargs: Any) -> _FakeResult:
-        if self._in_failed_tx:
-            raise ProgrammingError(
-                str(statement),
-                {},
-                psycopg.errors.InFailedSqlTransaction(
-                    "current transaction is aborted, commands ignored until end of transaction block"
-                ),
-            )
-        sql = str(statement)
-        if "pipeline_process_status" in sql:
-            if self._telemetry_error is not None:
-                self._in_failed_tx = True
-                raise self._telemetry_error
-            return _FakeResult(scalar_item=self._process_row)
-        if "pipeline_loop_states" in sql:
-            if self._telemetry_error is not None:
-                self._in_failed_tx = True
-                raise self._telemetry_error
-            return _FakeResult(scalar_items=self._loop_rows)
-        if "albums" in sql:
-            return _FakeResult(scalar_items=self._albums)
-        return _FakeResult()
-
-    def rollback(self) -> None:
-        self.rollback_calls += 1
-        self._in_failed_tx = False
-
-
-def _make_process_row(now: datetime) -> SimpleNamespace:
-    return SimpleNamespace(
-        process_name="default",
-        status="running",
-        run_mode="continuous",
-        host="scraper-host-01",
-        pid=12345,
-        heartbeat_interval_seconds=30,
-        started_at=now - timedelta(hours=1),
-        last_heartbeat_at=now - timedelta(seconds=10),
-        stopped_at=None,
-    )
 
 
 def _make_album(
@@ -165,7 +75,7 @@ def test_enrichment_queue_live_readonly_session(client: TestClient) -> None:
     assert eq["resolved_pct"] == expected_resolved_pct
     assert isinstance(eq["failed_items"], list)
     assert len(eq["failed_items"]) <= 25
-    assert _parse_iso(data["server_time"]).tzinfo is not None
+    assert parse_iso(data["server_time"]).tzinfo is not None
 
 
 def test_enrichment_queue_full_status_classification_and_resolved_pct(
@@ -224,9 +134,9 @@ def test_enrichment_queue_full_status_classification_and_resolved_pct(
         ),
     ]
 
-    fake_session = _FakeEnrichmentSession(
+    fake_session = FakeAdminSession(
         albums=albums,
-        process_row=_make_process_row(fixed_now),
+        process_row=make_process_row(now=fixed_now),
     )
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
@@ -259,10 +169,10 @@ def test_enrichment_queue_full_status_classification_and_resolved_pct(
     assert failed[0]["next_retry_at"] is None
 
     assert failed[1]["album_id"] == "11111111-1111-1111-1111-111111111111"
-    assert _parse_iso(failed[1]["next_retry_at"]) == fixed_now - timedelta(minutes=2)
+    assert parse_iso(failed[1]["next_retry_at"]) == fixed_now - timedelta(minutes=2)
 
     assert failed[2]["album_id"] == "22222222-2222-2222-2222-222222222222"
-    assert _parse_iso(failed[2]["next_retry_at"]) == fixed_now + timedelta(minutes=10)
+    assert parse_iso(failed[2]["next_retry_at"]) == fixed_now + timedelta(minutes=10)
 
 
 @pytest.mark.parametrize(
@@ -302,7 +212,7 @@ def test_enrichment_exponential_backoff_boundaries(
         enrichment_error="Upstream 502",
     )
 
-    fake_session = _FakeEnrichmentSession(albums=[album], process_row=_make_process_row(fixed_now))
+    fake_session = FakeAdminSession(albums=[album], process_row=make_process_row(now=fixed_now))
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:
@@ -323,7 +233,7 @@ def test_enrichment_exponential_backoff_boundaries(
     if expected_backoff_minutes is None:
         assert item["next_retry_at"] is None
     else:
-        assert _parse_iso(item["next_retry_at"]) == last_enriched_at + timedelta(
+        assert parse_iso(item["next_retry_at"]) == last_enriched_at + timedelta(
             minutes=expected_backoff_minutes
         )
 
@@ -340,7 +250,7 @@ def test_enrichment_failed_with_null_last_enriched_at_is_due_with_null_retry(
         enrichment_error="Connection reset",
     )
 
-    fake_session = _FakeEnrichmentSession(albums=[album], process_row=_make_process_row(fixed_now))
+    fake_session = FakeAdminSession(albums=[album], process_row=make_process_row(now=fixed_now))
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:
@@ -385,7 +295,7 @@ def test_enrichment_partial_matched_due_7d_60d_boundaries(
         created_at=fixed_now - created_offset,
     )
 
-    fake_session = _FakeEnrichmentSession(albums=[album], process_row=_make_process_row(fixed_now))
+    fake_session = FakeAdminSession(albums=[album], process_row=make_process_row(now=fixed_now))
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:
@@ -449,7 +359,7 @@ def test_enrichment_failed_items_priority_sorting_and_25_row_cap(client: TestCli
             )
         )
 
-    fake_session = _FakeEnrichmentSession(albums=albums, process_row=_make_process_row(fixed_now))
+    fake_session = FakeAdminSession(albums=albums, process_row=make_process_row(now=fixed_now))
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:
@@ -488,7 +398,7 @@ def test_enrichment_failed_items_priority_sorting_and_25_row_cap(client: TestCli
 def test_enrichment_queue_empty_albums_returns_zero_resolved_pct(client: TestClient) -> None:
     """Empty albums table returns all-zero counts and resolved_pct == 0.0 without ZeroDivision."""
     fixed_now = datetime(2026, 11, 27, 12, 0, 0, tzinfo=timezone.utc)
-    fake_session = _FakeEnrichmentSession(albums=[], process_row=_make_process_row(fixed_now))
+    fake_session = FakeAdminSession(albums=[], process_row=make_process_row(now=fixed_now))
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:
@@ -525,7 +435,7 @@ def test_enrichment_queue_populates_when_telemetry_tables_missing(client: TestCl
         ),
     ]
 
-    fake_session = _FakeEnrichmentSession(albums=albums, telemetry_error=undefined_table_err)
+    fake_session = FakeAdminSession(albums=albums, telemetry_error=undefined_table_err)
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:
@@ -562,7 +472,7 @@ def test_enrichment_queue_populates_when_telemetry_tables_empty(client: TestClie
         ),
     ]
 
-    fake_session = _FakeEnrichmentSession(albums=albums, process_row=None, loop_rows=[])
+    fake_session = FakeAdminSession(albums=albums, process_row=None, loop_rows=[])
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:

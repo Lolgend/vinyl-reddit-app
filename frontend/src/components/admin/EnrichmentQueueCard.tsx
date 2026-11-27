@@ -1,21 +1,13 @@
 import React from 'react'
 import type { EnrichmentQueueStatus } from '../../types/admin'
+import { StackedProgressBar, type StackedProgressSegment } from './StackedProgressBar'
 
 interface EnrichmentQueueCardProps {
   queue: EnrichmentQueueStatus
 }
 
-interface QueueSegment {
-  key: string
-  label: string
-  count: number
-  barTestId: string
-  countTestId: string
-  colorClass: string
-}
-
 export const EnrichmentQueueCard: React.FC<EnrichmentQueueCardProps> = ({ queue }) => {
-  const segments: QueueSegment[] = [
+  const segments: StackedProgressSegment[] = [
     {
       key: 'matched',
       label: 'Matched',
@@ -58,8 +50,6 @@ export const EnrichmentQueueCard: React.FC<EnrichmentQueueCardProps> = ({ queue 
     },
   ]
 
-  const activeSegments = segments.filter((segment) => segment.count > 0)
-
   const progressSummary = `Enrichment Queue ${queue.resolved_pct.toFixed(1)}% resolved: ${queue.matched} matched, ${queue.partial_matched} partial matched, ${queue.not_found} not found, ${queue.pending} pending, ${queue.failed_total} failed out of ${queue.total} albums`
 
   return (
@@ -91,49 +81,16 @@ export const EnrichmentQueueCard: React.FC<EnrichmentQueueCardProps> = ({ queue 
         </div>
       </div>
 
-      {/* 5-Segment Neo-Brutalist Stacked Progress Bar */}
-      <div
-        role="img"
-        aria-label={progressSummary}
-        className="h-6 w-full bg-canvas border-strong rounded-[4px] overflow-hidden flex"
-        data-testid="enrichment-progress-bar"
-      >
-        {queue.total > 0 &&
-          activeSegments.map((segment) => {
-            const widthPct = (segment.count / queue.total) * 100
-            return (
-              <div
-                key={segment.key}
-                style={{ width: `${widthPct}%` }}
-                className={`h-full border-r border-ink-primary last:border-r-0 ${segment.colorClass}`}
-                title={`${segment.label}: ${segment.count.toLocaleString()} (${widthPct.toFixed(1)}%)`}
-                data-testid={segment.barTestId}
-              />
-            )
-          })}
-      </div>
-
-      {/* Exact 5-Segment Counts Legend */}
-      <dl className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-        {segments.map((segment) => (
-          <div
-            key={segment.key}
-            className="rounded-[4px] bg-canvas border border-border-hairline px-2.5 py-2 flex flex-col gap-1"
-            data-testid={segment.countTestId}
-          >
-            <dt className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-ink-secondary font-semibold">
-              <span
-                className={`inline-block w-2.5 h-2.5 rounded-[2px] border border-ink-primary shrink-0 ${segment.colorClass}`}
-                aria-hidden="true"
-              />
-              <span className="truncate">{segment.label}</span>
-            </dt>
-            <dd className="font-mono text-sm font-bold text-ink-primary">
-              {segment.count.toLocaleString()}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      {/* 5-Segment Neo-Brutalist Stacked Progress Bar & Legend */}
+      <StackedProgressBar
+        segments={segments}
+        total={queue.total}
+        ariaLabel={progressSummary}
+        valueNow={queue.resolved_pct}
+        barTestId="enrichment-progress-bar"
+        legendGridClassName="grid grid-cols-2 sm:grid-cols-5 gap-2.5"
+        legendLayout="stacked"
+      />
 
       {/* Actionable Retry & Re-check Breakdown Callouts */}
       <div

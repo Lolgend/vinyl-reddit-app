@@ -4,95 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from typing import Any
 
 import psycopg.errors
 import pytest
+from admin_test_helpers import FakeAdminSession, make_process_row, parse_iso
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import ProgrammingError
 
 from backend.api.admin import get_utc_now
 from backend.db import get_db
 from backend.main import app
-
-
-def _parse_iso(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-class _FakeScalarResult:
-    def __init__(self, items: list[Any]) -> None:
-        self._items = items
-
-    def all(self) -> list[Any]:
-        return list(self._items)
-
-
-class _FakeResult:
-    def __init__(self, *, scalar_item: Any = None, scalar_items: list[Any] | None = None) -> None:
-        self._scalar_item = scalar_item
-        self._scalar_items = scalar_items if scalar_items is not None else []
-
-    def scalar_one_or_none(self) -> Any:
-        return self._scalar_item
-
-    def scalars(self) -> _FakeScalarResult:
-        return _FakeScalarResult(self._scalar_items)
-
-
-class _FakeAdminSession:
-    """Controlled read-only Session stub for deterministic HTTP-seam testing."""
-
-    def __init__(
-        self,
-        *,
-        process_row: Any = None,
-        loop_rows: list[Any] | None = None,
-        telemetry_error: Exception | None = None,
-    ) -> None:
-        self._process_row = process_row
-        self._loop_rows = loop_rows if loop_rows is not None else []
-        self._telemetry_error = telemetry_error
-        self.rollback_calls = 0
-
-    def execute(self, statement: Any, *args: Any, **kwargs: Any) -> _FakeResult:
-        sql = str(statement)
-        if "pipeline_process_status" in sql:
-            if self._telemetry_error is not None:
-                raise self._telemetry_error
-            return _FakeResult(scalar_item=self._process_row)
-        if "pipeline_loop_states" in sql:
-            if self._telemetry_error is not None:
-                raise self._telemetry_error
-            return _FakeResult(scalar_items=self._loop_rows)
-        return _FakeResult()
-
-    def rollback(self) -> None:
-        self.rollback_calls += 1
-
-
-def _make_process_row(
-    *,
-    status: str = "running",
-    run_mode: str = "continuous",
-    host: str = "scraper-host-01",
-    pid: int = 12345,
-    heartbeat_interval_seconds: int = 30,
-    started_at: datetime,
-    last_heartbeat_at: datetime,
-    stopped_at: datetime | None = None,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        process_name="default",
-        status=status,
-        run_mode=run_mode,
-        host=host,
-        pid=pid,
-        heartbeat_interval_seconds=heartbeat_interval_seconds,
-        started_at=started_at,
-        last_heartbeat_at=last_heartbeat_at,
-        stopped_at=stopped_at,
-    )
 
 
 def _make_loop_row(
@@ -132,7 +53,7 @@ def test_admin_pipeline_live_readonly_session(client: TestClient) -> None:
 
     data = response.json()
     assert "server_time" in data
-    _parse_iso(data["server_time"])
+    parse_iso(data["server_time"])
     assert isinstance(data["telemetry_available"], bool)
     assert data["process"]["effective_status"] in {
         "online",
@@ -147,7 +68,7 @@ def test_admin_pipeline_live_readonly_session(client: TestClient) -> None:
 def test_admin_pipeline_online_with_canonical_loop_ordering_and_stats(client: TestClient) -> None:
     """Online process returns all four loops in canonical order with stats, errors, and schedules."""
     fixed_now = datetime(2026, 11, 27, 12, 0, 0, tzinfo=timezone.utc)
-    process_row = _make_process_row(
+    process_row = make_process_row(
         status="running",
         run_mode="continuous",
         host="vinyl-scraper-prod",
@@ -197,7 +118,7 @@ def test_admin_pipeline_online_with_canonical_loop_ordering_and_stats(client: Te
         ),
     ]
 
-    fake_session = _FakeAdminSession(process_row=process_row, loop_rows=loop_rows)
+    fake_session = FakeAdminSession(process_row=process_row, loop_rows=loop_rows)
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:
@@ -208,7 +129,7 @@ def test_admin_pipeline_online_with_canonical_loop_ordering_and_stats(client: Te
     assert response.status_code == 200
     data = response.json()
     assert data["telemetry_available"] is True
-    assert _parse_iso(data["server_time"]) == fixed_now
+    assert parse_iso(data["server_time"]) == fixed_now
 
     proc = data["process"]
     assert proc["effective_status"] == "online"
@@ -255,7 +176,7 @@ def test_admin_pipeline_heartbeat_staleness_threshold(
 ) -> None:
     """Running process transitions to offline strictly when heartbeat age > max(90, 3*interval)."""
     fixed_now = datetime(2026, 11, 27, 12, 0, 0, tzinfo=timezone.utc)
-    process_row = _make_process_row(
+    process_row = make_process_row(
         status="running",
         heartbeat_interval_seconds=heartbeat_interval,
         started_at=fixed_now - timedelta(hours=1),
@@ -270,7 +191,7 @@ def test_admin_pipeline_heartbeat_staleness_threshold(
         ),
     ]
 
-    fake_session = _FakeAdminSession(process_row=process_row, loop_rows=loop_rows)
+    fake_session = FakeAdminSession(process_row=process_row, loop_rows=loop_rows)
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:
@@ -296,7 +217,7 @@ def test_admin_pipeline_stopped_process_clears_next_run_at(
     """Cleanly stopped continuous or --once process reports stopped with stopped_at and no timers."""
     fixed_now = datetime(2026, 11, 27, 12, 0, 0, tzinfo=timezone.utc)
     stopped_at = fixed_now - timedelta(minutes=10)
-    process_row = _make_process_row(
+    process_row = make_process_row(
         status="stopped",
         run_mode=run_mode,
         started_at=fixed_now - timedelta(minutes=15),
@@ -312,7 +233,7 @@ def test_admin_pipeline_stopped_process_clears_next_run_at(
         ),
     ]
 
-    fake_session = _FakeAdminSession(process_row=process_row, loop_rows=loop_rows)
+    fake_session = FakeAdminSession(process_row=process_row, loop_rows=loop_rows)
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
     try:
@@ -325,7 +246,7 @@ def test_admin_pipeline_stopped_process_clears_next_run_at(
     assert data["telemetry_available"] is True
     assert data["process"]["effective_status"] == "stopped"
     assert data["process"]["run_mode"] == run_mode
-    assert _parse_iso(data["process"]["stopped_at"]) == stopped_at
+    assert parse_iso(data["process"]["stopped_at"]) == stopped_at
     assert data["loops"][0]["next_run_at"] is None
 
 
@@ -339,7 +260,7 @@ def test_admin_pipeline_degrades_gracefully_when_telemetry_tables_missing(
         {},
         psycopg.errors.UndefinedTable('relation "pipeline_process_status" does not exist'),
     )
-    fake_session = _FakeAdminSession(telemetry_error=undefined_table_err)
+    fake_session = FakeAdminSession(telemetry_error=undefined_table_err)
 
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
@@ -363,7 +284,7 @@ def test_admin_pipeline_degrades_gracefully_when_telemetry_tables_missing(
 def test_admin_pipeline_degrades_gracefully_when_process_table_empty(client: TestClient) -> None:
     """Empty pipeline_process_status table returns HTTP 200 telemetry_available=False."""
     fixed_now = datetime(2026, 11, 27, 12, 0, 0, tzinfo=timezone.utc)
-    fake_session = _FakeAdminSession(process_row=None, loop_rows=[])
+    fake_session = FakeAdminSession(process_row=None, loop_rows=[])
 
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now
@@ -382,7 +303,7 @@ def test_admin_pipeline_degrades_gracefully_when_process_table_empty(client: Tes
 def test_admin_pipeline_query_parameter_validation(client: TestClient) -> None:
     """Valid run filter params return 200; invalid stage, outcome, or limit return 422."""
     fixed_now = datetime(2026, 11, 27, 12, 0, 0, tzinfo=timezone.utc)
-    fake_session = _FakeAdminSession(process_row=None)
+    fake_session = FakeAdminSession(process_row=None)
 
     app.dependency_overrides[get_db] = lambda: fake_session
     app.dependency_overrides[get_utc_now] = lambda: fixed_now

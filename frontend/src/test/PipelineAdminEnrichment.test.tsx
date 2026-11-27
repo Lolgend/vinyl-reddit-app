@@ -164,12 +164,32 @@ describe('Pipeline Admin Enrichment Queue & Failed Albums Inspector (#44)', () =
     expect(card).toHaveTextContent('Enrichment Queue')
     expect(screen.getByTestId('enrichment-resolved-pct')).toHaveTextContent('93.8%')
 
-    // 5-segment Neo-Brutalist stacked progress bar with semantic tokens
-    expect(screen.getByTestId('enrichment-bar-matched')).toHaveClass('bg-hype-high')
-    expect(screen.getByTestId('enrichment-bar-partial')).toHaveClass('bg-accent-primary')
-    expect(screen.getByTestId('enrichment-bar-not-found')).toHaveClass('bg-accent-sand')
-    expect(screen.getByTestId('enrichment-bar-pending')).toHaveClass('bg-hype-moderate')
-    expect(screen.getByTestId('enrichment-bar-failed')).toHaveClass('bg-alert-coral')
+    // 5-segment Neo-Brutalist stacked progress bar with semantic tokens & smooth transitions
+    expect(screen.getByTestId('enrichment-bar-matched')).toHaveClass(
+      'bg-hype-high',
+      'transition-all',
+      'duration-300'
+    )
+    expect(screen.getByTestId('enrichment-bar-partial')).toHaveClass(
+      'bg-accent-primary',
+      'transition-all',
+      'duration-300'
+    )
+    expect(screen.getByTestId('enrichment-bar-not-found')).toHaveClass(
+      'bg-accent-sand',
+      'transition-all',
+      'duration-300'
+    )
+    expect(screen.getByTestId('enrichment-bar-pending')).toHaveClass(
+      'bg-hype-moderate',
+      'transition-all',
+      'duration-300'
+    )
+    expect(screen.getByTestId('enrichment-bar-failed')).toHaveClass(
+      'bg-alert-coral',
+      'transition-all',
+      'duration-300'
+    )
 
     // Exact segment counts
     expect(screen.getByTestId('enrichment-count-matched')).toHaveTextContent('210')
@@ -305,5 +325,74 @@ describe('Pipeline Admin Enrichment Queue & Failed Albums Inspector (#44)', () =
     expect(
       screen.getByTestId('failed-enrichment-row-11111111-2222-3333-4444-555555555555')
     ).toHaveTextContent('In Rainbows')
+  })
+
+  it('truncates long enrichment_error messages with an accessible per-row Show more / Show less toggle', async () => {
+    const longError =
+      'Discogs API HTTP 503 Service Unavailable during release lookup for master 987654321: upstream gateway timed out after 30000ms while fetching tracklist and format metadata for pressing.'
+    const shortError = 'Discogs API 429 Too Many Requests'
+
+    stubAdminFetch(
+      makeAdminPayload({
+        enrichment_queue: makeEnrichmentQueue({
+          failed_items: [
+            {
+              album_id: 'long-err-album-id',
+              combined_artist: 'Boards of Canada',
+              album_title: 'Geogaddi',
+              enrichment_attempts: 5,
+              max_attempts: 5,
+              enrichment_error: longError,
+              last_enriched_at: '2026-11-27T11:00:00.000Z',
+              next_retry_at: null,
+              state: 'exhausted',
+            },
+            {
+              album_id: 'short-err-album-id',
+              combined_artist: 'Radiohead',
+              album_title: 'Kid A',
+              enrichment_attempts: 2,
+              max_attempts: 5,
+              enrichment_error: shortError,
+              last_enriched_at: '2026-11-27T11:45:00.000Z',
+              next_retry_at: '2026-11-27T11:55:00.000Z',
+              state: 'due',
+            },
+          ],
+        }),
+      })
+    )
+
+    renderAdminApp('/admin')
+
+    const longErrorEl = await screen.findByTestId('failed-enrichment-error-long-err-album-id')
+    const toggleBtn = screen.getByTestId('failed-enrichment-toggle-long-err-album-id')
+
+    // Initially truncated with ellipsis and Show more button
+    expect(longErrorEl.textContent).not.toBe(longError)
+    expect(longErrorEl.textContent?.endsWith('…')).toBe(true)
+    expect(toggleBtn).toHaveTextContent('Show more')
+    expect(toggleBtn).toHaveAttribute('aria-expanded', 'false')
+
+    // Short error renders in full without a toggle button
+    expect(screen.getByTestId('failed-enrichment-error-short-err-album-id')).toHaveTextContent(
+      shortError
+    )
+    expect(
+      screen.queryByTestId('failed-enrichment-toggle-short-err-album-id')
+    ).not.toBeInTheDocument()
+
+    // Clicking Show more expands full error
+    fireEvent.click(toggleBtn)
+    expect(longErrorEl).toHaveTextContent(longError)
+    expect(toggleBtn).toHaveTextContent('Show less')
+    expect(toggleBtn).toHaveAttribute('aria-expanded', 'true')
+
+    // Clicking Show less collapses back to truncated preview
+    fireEvent.click(toggleBtn)
+    expect(longErrorEl.textContent).not.toBe(longError)
+    expect(longErrorEl.textContent?.endsWith('…')).toBe(true)
+    expect(toggleBtn).toHaveTextContent('Show more')
+    expect(toggleBtn).toHaveAttribute('aria-expanded', 'false')
   })
 })

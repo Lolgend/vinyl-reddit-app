@@ -2,6 +2,7 @@ import React from 'react'
 import { AlertTriangle, History, Info } from 'lucide-react'
 import type { LoopName, PipelineRunItem, RunOutcome } from '../../types/admin'
 import {
+  LOOP_DISPLAY_META,
   formatClockTimestamp,
   formatDurationMs,
   formatRelativeToNow,
@@ -26,26 +27,81 @@ interface PipelineRunsTableProps {
   isFetching?: boolean
 }
 
-const STAGE_OPTIONS: ReadonlyArray<{ value: LoopName | null; label: string }> = [
+interface PillFilterOption<T extends string | null> {
+  value: T
+  label: string
+}
+
+interface PillFilterGroupProps<T extends string | null> {
+  label: string
+  ariaLabel: string
+  groupTestId: string
+  pillTestIdPrefix: string
+  options: ReadonlyArray<PillFilterOption<T>>
+  selectedValue: T
+  disabled: boolean
+  onChange: (value: T) => void
+}
+
+function PillFilterGroup<T extends string | null>({
+  label,
+  ariaLabel,
+  groupTestId,
+  pillTestIdPrefix,
+  options,
+  selectedValue,
+  disabled,
+  onChange,
+}: PillFilterGroupProps<T>) {
+  return (
+    <div
+      role="group"
+      aria-label={ariaLabel}
+      className="flex flex-wrap items-center gap-1.5"
+      data-testid={groupTestId}
+    >
+      <span className="font-mono text-[11px] uppercase tracking-wider text-ink-secondary font-semibold mr-1">
+        {label}:
+      </span>
+      {options.map((option) => {
+        const isActive = selectedValue === option.value
+        return (
+          <button
+            key={option.label}
+            type="button"
+            aria-pressed={isActive}
+            disabled={disabled}
+            onClick={() => onChange(option.value)}
+            className={`${PILL_BUTTON_BASE_CLASS} disabled:opacity-50 disabled:cursor-not-allowed ${
+              isActive ? PILL_BUTTON_ACTIVE_CLASS : PILL_BUTTON_INACTIVE_CLASS
+            }`}
+            data-testid={`${pillTestIdPrefix}-${option.value ?? 'all'}`}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+const STAGE_OPTIONS: ReadonlyArray<PillFilterOption<LoopName | null>> = [
   { value: null, label: 'All' },
-  { value: 'discovery_poll', label: 'Discovery Poll' },
-  { value: 'tracking_poll', label: 'Tracking Poll' },
-  { value: 'extraction_worker', label: 'Extraction' },
-  { value: 'enrichment_worker', label: 'Enrichment' },
+  ...(
+    Object.entries(LOOP_DISPLAY_META) as Array<
+      [LoopName, (typeof LOOP_DISPLAY_META)[LoopName]]
+    >
+  ).map(([value, meta]) => ({
+    value,
+    label: meta.shortLabel,
+  })),
 ]
 
-const OUTCOME_OPTIONS: ReadonlyArray<{ value: RunOutcome | null; label: string }> = [
+const OUTCOME_OPTIONS: ReadonlyArray<PillFilterOption<RunOutcome | null>> = [
   { value: null, label: 'All' },
   { value: 'success', label: 'Success' },
   { value: 'error', label: 'Error' },
 ]
-
-const STAGE_BADGE_LABELS: Record<LoopName, string> = {
-  discovery_poll: 'Discovery Poll',
-  tracking_poll: 'Tracking Poll',
-  extraction_worker: 'Extraction',
-  enrichment_worker: 'Enrichment',
-}
 
 const OUTCOME_BADGE_STYLES: Record<RunOutcome, { label: string; className: string }> = {
   success: {
@@ -78,7 +134,7 @@ export const PipelineRunsTable: React.FC<PipelineRunsTableProps> = ({
 
   const activeFilterSummaryParts: string[] = []
   if (selectedStage !== null) {
-    activeFilterSummaryParts.push(`Stage: ${STAGE_BADGE_LABELS[selectedStage]}`)
+    activeFilterSummaryParts.push(`Stage: ${LOOP_DISPLAY_META[selectedStage].shortLabel}`)
   }
   if (selectedOutcome !== null) {
     activeFilterSummaryParts.push(
@@ -115,63 +171,26 @@ export const PipelineRunsTable: React.FC<PipelineRunsTableProps> = ({
 
         {/* Inline Pill Filters */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-          <div
-            role="group"
-            aria-label="Filter runs by stage"
-            className="flex flex-wrap items-center gap-1.5"
-            data-testid="runs-stage-filter-group"
-          >
-            <span className="font-mono text-[11px] uppercase tracking-wider text-ink-secondary font-semibold mr-1">
-              Stage:
-            </span>
-            {STAGE_OPTIONS.map((option) => {
-              const isActive = selectedStage === option.value
-              return (
-                <button
-                  key={option.label}
-                  type="button"
-                  aria-pressed={isActive}
-                  disabled={!telemetryAvailable}
-                  onClick={() => onStageChange(option.value)}
-                  className={`${PILL_BUTTON_BASE_CLASS} disabled:opacity-50 disabled:cursor-not-allowed ${
-                    isActive ? PILL_BUTTON_ACTIVE_CLASS : PILL_BUTTON_INACTIVE_CLASS
-                  }`}
-                  data-testid={`runs-stage-pill-${option.value ?? 'all'}`}
-                >
-                  {option.label}
-                </button>
-              )
-            })}
-          </div>
-
-          <div
-            role="group"
-            aria-label="Filter runs by outcome"
-            className="flex flex-wrap items-center gap-1.5"
-            data-testid="runs-outcome-filter-group"
-          >
-            <span className="font-mono text-[11px] uppercase tracking-wider text-ink-secondary font-semibold mr-1">
-              Outcome:
-            </span>
-            {OUTCOME_OPTIONS.map((option) => {
-              const isActive = selectedOutcome === option.value
-              return (
-                <button
-                  key={option.label}
-                  type="button"
-                  aria-pressed={isActive}
-                  disabled={!telemetryAvailable}
-                  onClick={() => onOutcomeChange(option.value)}
-                  className={`${PILL_BUTTON_BASE_CLASS} disabled:opacity-50 disabled:cursor-not-allowed ${
-                    isActive ? PILL_BUTTON_ACTIVE_CLASS : PILL_BUTTON_INACTIVE_CLASS
-                  }`}
-                  data-testid={`runs-outcome-pill-${option.value ?? 'all'}`}
-                >
-                  {option.label}
-                </button>
-              )
-            })}
-          </div>
+          <PillFilterGroup
+            label="Stage"
+            ariaLabel="Filter runs by stage"
+            groupTestId="runs-stage-filter-group"
+            pillTestIdPrefix="runs-stage-pill"
+            options={STAGE_OPTIONS}
+            selectedValue={selectedStage}
+            disabled={!telemetryAvailable}
+            onChange={onStageChange}
+          />
+          <PillFilterGroup
+            label="Outcome"
+            ariaLabel="Filter runs by outcome"
+            groupTestId="runs-outcome-filter-group"
+            pillTestIdPrefix="runs-outcome-pill"
+            options={OUTCOME_OPTIONS}
+            selectedValue={selectedOutcome}
+            disabled={!telemetryAvailable}
+            onChange={onOutcomeChange}
+          />
         </div>
       </div>
 
@@ -262,7 +281,7 @@ export const PipelineRunsTable: React.FC<PipelineRunsTableProps> = ({
                   >
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="inline-flex items-center px-2 py-0.5 rounded-[4px] border-strong bg-canvas font-mono text-[11px] font-bold text-ink-primary">
-                        {STAGE_BADGE_LABELS[run.stage]}
+                        {LOOP_DISPLAY_META[run.stage].shortLabel}
                       </span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -293,7 +312,7 @@ export const PipelineRunsTable: React.FC<PipelineRunsTableProps> = ({
                     <td className="px-4 py-3 max-w-md">
                       {run.error_message ? (
                         <div
-                          className="inline-flex items-start gap-1.5 px-2 py-1 rounded-[4px] bg-alert-coral/25 border border-ink-primary font-mono text-[11px] font-semibold text-ink-primary break-words"
+                          className="inline-flex items-start gap-1.5 px-2 py-1 rounded-[4px] bg-alert-coral/25 border-strong font-mono text-[11px] font-semibold text-ink-primary break-words"
                           title={run.error_message}
                         >
                           <AlertTriangle

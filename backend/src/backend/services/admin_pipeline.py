@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import cast
 
-import psycopg.errors
 from reddit_scrape.models import PipelineLoopState, PipelineProcessStatus
 from sqlalchemy import select
 from sqlalchemy.exc import ProgrammingError
@@ -21,6 +20,12 @@ from backend.schemas.admin import (
     PipelineRunItem,
     RunOutcome,
 )
+from backend.services.admin_common import (
+    VALID_LOOP_NAMES,
+    ensure_utc,
+    is_undefined_table_error,
+    normalize_stats,
+)
 from backend.services.admin_enrichment import get_enrichment_queue_status
 from backend.services.admin_extraction import get_extraction_queue_status
 from backend.services.admin_runs import get_pipeline_runs
@@ -35,23 +40,7 @@ CANONICAL_LOOP_ORDER: tuple[LoopName, ...] = (
     "enrichment_worker",
 )
 _LOOP_ORDER_INDEX: dict[str, int] = {name: idx for idx, name in enumerate(CANONICAL_LOOP_ORDER)}
-_VALID_LOOP_NAMES: set[str] = set(CANONICAL_LOOP_ORDER)
 _VALID_LOOP_STATUSES: set[str] = {"running", "sleeping", "error", "stopped", "disabled"}
-
-
-def _ensure_utc(dt: datetime | None) -> datetime | None:
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
-def _is_undefined_table_error(exc: ProgrammingError) -> bool:
-    orig = getattr(exc, "orig", None)
-    if isinstance(orig, psycopg.errors.UndefinedTable):
-        return True
-    return getattr(orig, "sqlstate", None) == "42P01"
 
 
 def _unavailable_process() -> PipelineProcessInfo:
@@ -67,9 +56,9 @@ def _evaluate_process_status(
 ) -> PipelineProcessInfo:
     heartbeat_interval = row.heartbeat_interval_seconds or 30
     stale_threshold = max(MIN_STALE_THRESHOLD_SECONDS, 3 * heartbeat_interval)
-    last_heartbeat_utc = _ensure_utc(row.last_heartbeat_at)
-    started_at_utc = _ensure_utc(row.started_at)
-    stopped_at_utc = _ensure_utc(row.stopped_at)
+    last_heartbeat_utc = ensure_utc(row.last_heartbeat_at)
+    started_at_utc = ensure_utc(row.started_at)
+    stopped_at_utc = ensure_utc(row.stopped_at)
 
     effective: EffectiveProcessStatus
     if row.status == "stopped":
@@ -102,7 +91,7 @@ def _serialize_loops(
 ) -> list[PipelineLoopInfo]:
     items: list[PipelineLoopInfo] = []
     for row in rows:
-        if row.loop_name not in _VALID_LOOP_NAMES:
+        if row.loop_name not in VALID_LOOP_NAMES:
             continue
         status_val: LoopStatus = (
             cast(LoopStatus, row.status) if row.status in _VALID_LOOP_STATUSES else "stopped"
@@ -111,23 +100,17 @@ def _serialize_loops(
             "stopped",
             "disabled",
         )
-        next_run_at = None if hide_next_run else _ensure_utc(row.next_run_at)
-        raw_stats = row.last_run_stats
-        last_run_stats: dict[str, int] | None = (
-            {str(k): int(v) for k, v in raw_stats.items()}
-            if isinstance(raw_stats, dict)
-            else None
-        )
+        next_run_at = None if hide_next_run else ensure_utc(row.next_run_at)
         items.append(
             PipelineLoopInfo(
                 loop_name=cast(LoopName, row.loop_name),
                 status=status_val,
                 interval_seconds=row.interval_seconds,
-                last_started_at=_ensure_utc(row.last_started_at),
-                last_completed_at=_ensure_utc(row.last_completed_at),
+                last_started_at=ensure_utc(row.last_started_at),
+                last_completed_at=ensure_utc(row.last_completed_at),
                 next_run_at=next_run_at,
                 last_duration_ms=row.last_duration_ms,
-                last_run_stats=last_run_stats,
+                last_run_stats=normalize_stats(row.last_run_stats),
                 last_error=row.last_error,
             )
         )
@@ -152,7 +135,7 @@ def _read_telemetry(
         loops = _serialize_loops(loop_rows, process_info.effective_status)
         return True, process_info, loops
     except ProgrammingError as exc:
-        if _is_undefined_table_error(exc):
+        if is_undefined_table_error(exc):
             session.rollback()
             return False, _unavailable_process(), []
         raise
@@ -167,7 +150,7 @@ def get_admin_pipeline_status(
     run_limit: int = 50,
 ) -> AdminPipelineResponse:
     """Assemble the read-only Pipeline Admin operational status payload."""
-    now_utc = _ensure_utc(now) or datetime.now(timezone.utc)
+    now_utc = ensure_utc(now) or datetime.now(timezone.utc)
     telemetry_available, process_info, loops = _read_telemetry(session, now_utc)
 
     # Pluggable slots for parallel tickets #43 (Extraction Queue),

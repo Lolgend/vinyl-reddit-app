@@ -119,7 +119,7 @@ export const PipelineLoopGrid: React.FC<PipelineLoopGridProps> = ({
                       <h2 className="font-grotesk font-bold text-base text-ink-primary leading-tight">
                         {meta.title}
                       </h2>
-                      <span className="font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded-[4px] bg-canvas border border-border-hairline text-ink-secondary">
+                      <span className="font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded-[4px] bg-canvas border-strong text-ink-secondary">
                         {meta.tag}
                       </span>
                     </div>
@@ -161,6 +161,15 @@ export const PipelineLoopGrid: React.FC<PipelineLoopGridProps> = ({
                   <div className="py-1.5 flex items-center justify-between gap-2">
                     <dt className="text-ink-secondary uppercase text-[11px]">Interval</dt>
                     <dd className="text-ink-primary font-semibold">{intervalLabel}</dd>
+                  </div>
+                  <div className="py-1.5 flex items-center justify-between gap-2">
+                    <dt className="text-ink-secondary uppercase text-[11px]">Last Started</dt>
+                    <dd
+                      className="text-ink-primary font-semibold"
+                      data-testid={`loop-last-started-${loop.loop_name}`}
+                    >
+                      {formatRelativeToNow(loop.last_started_at, nowMs)}
+                    </dd>
                   </div>
                   <div className="py-1.5 flex items-center justify-between gap-2">
                     <dt className="text-ink-secondary uppercase text-[11px]">Last Completed</dt>
