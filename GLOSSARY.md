@@ -55,3 +55,35 @@ _Avoid_: Reddit Demand, Statistics, Submission Metrics, Telemetry
 **Last Seen**:
 The timestamp of the most recent tracked community mention referencing an `Album`, `Release`, or `Artist`, displayed at the top level of entity detail views to contextualize low or zero `Hype Index` readings when no recent window activity has occurred.
 _Avoid_: Last scraped, last updated, last polled, last snapshot
+
+## Pipeline Operations
+
+Canonical operational vocabulary for internal monitoring screens and cross-repo pipeline contracts. Buyer-facing screens remain strictly source-agnostic and use the domain terms above.
+
+**Pipeline**:
+The end-to-end automated background workflow that discovers community posts, extracts structured catalog entities, and reconciles external discography metadata.
+_Avoid_: Ingestion pipeline, scraper loop
+
+**Discovery Poll**:
+A periodic fetch of newly posted community announcements to discover unrecorded mentions and capture initial engagement observations.
+_Avoid_: New loop, scrape job
+
+**Tracking Poll**:
+A periodic fetch of active community threads to refresh engagement metrics, status tags, and point-in-time observations.
+_Avoid_: Hot loop, refresh job
+
+**Extraction Queue**:
+Release-eligible community posts waiting to be parsed into `Album`, `Release`, and `Artist` catalog records.
+_Avoid_: Parse queue, LLM backlog
+
+**Enrichment Queue**:
+Catalog `Album` records waiting for or retrying external discography matching and metadata reconciliation.
+_Avoid_: Discogs backlog, matching queue
+
+**Pipeline Heartbeat**:
+A periodic liveness signal emitted by a running `Pipeline` process to distinguish an active or sleeping worker from a crashed or stopped one.
+_Avoid_: Ping, keepalive
+
+**Pipeline Run**:
+An individual execution of a `Pipeline` loop recording its start and completion timestamps, outcome, throughput counts, and any failure details.
+_Avoid_: Job log, cycle history, batch record
