@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from backend.api.admin import router as admin_router
 from backend.api.albums import router as albums_router
 from backend.api.artists import router as artists_router
 from backend.api.dashboard import router as dashboard_router
@@ -16,5 +17,6 @@ api_router.include_router(albums_router, prefix="/albums", tags=["albums"])
 api_router.include_router(releases_router, prefix="/releases", tags=["releases"])
 api_router.include_router(artists_router, prefix="/artists", tags=["artists"])
 api_router.include_router(search_router, prefix="/search", tags=["search"])
+api_router.include_router(admin_router, prefix="/admin", tags=["admin"])
 
 __all__ = ["api_router"]
