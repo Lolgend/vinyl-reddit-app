@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Info, RefreshCw, Server } from 'lucide-react'
 import { fetchAdminPipeline } from '../api/admin'
+import { ExtractionQueueCard } from '../components/admin/ExtractionQueueCard'
+import { PendingExtractionsTable } from '../components/admin/PendingExtractionsTable'
 import { PipelineLoopGrid } from '../components/admin/PipelineLoopGrid'
 import { PipelineRunsTable } from '../components/admin/PipelineRunsTable'
 import type {
@@ -280,6 +282,12 @@ export const PipelineAdmin: React.FC = () => {
               data-testid="admin-queue-progress-slot"
             >
               {/* #43 mounts <ExtractionQueueCard /> here */}
+              {data.extraction_queue && (
+                <ExtractionQueueCard
+                  queue={data.extraction_queue}
+                  nowMs={effectiveNowMs}
+                />
+              )}
               {/* #44 mounts <EnrichmentQueueCard /> here */}
             </section>
           )}
@@ -292,6 +300,12 @@ export const PipelineAdmin: React.FC = () => {
               data-testid="admin-queue-tables-slot"
             >
               {/* #43 mounts <PendingExtractionsTable /> here */}
+              {data.extraction_queue && (
+                <PendingExtractionsTable
+                  queue={data.extraction_queue}
+                  nowMs={effectiveNowMs}
+                />
+              )}
               {/* #44 mounts <FailedEnrichmentsTable /> here */}
             </section>
           )}

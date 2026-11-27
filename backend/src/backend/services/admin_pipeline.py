@@ -15,7 +15,6 @@ from backend.schemas.admin import (
     AdminPipelineResponse,
     EffectiveProcessStatus,
     EnrichmentQueueStatus,
-    ExtractionQueueStatus,
     LoopName,
     LoopStatus,
     PipelineLoopInfo,
@@ -23,6 +22,7 @@ from backend.schemas.admin import (
     PipelineRunItem,
     RunOutcome,
 )
+from backend.services.admin_extraction import get_extraction_queue_status
 from backend.services.admin_runs import get_pipeline_runs
 
 DEFAULT_PROCESS_NAME = "default"
@@ -172,7 +172,7 @@ def get_admin_pipeline_status(
 
     # Pluggable slots for parallel tickets #43 (Extraction Queue),
     # #44 (Enrichment Queue), and #45 (Pipeline Run History).
-    extraction_queue: ExtractionQueueStatus | None = None
+    extraction_queue = get_extraction_queue_status(session)
     enrichment_queue: EnrichmentQueueStatus | None = None
     runs: list[PipelineRunItem] = (
         get_pipeline_runs(
