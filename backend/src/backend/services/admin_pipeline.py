@@ -23,6 +23,7 @@ from backend.schemas.admin import (
     RunOutcome,
 )
 from backend.services.admin_extraction import get_extraction_queue_status
+from backend.services.admin_runs import get_pipeline_runs
 
 DEFAULT_PROCESS_NAME = "default"
 MIN_STALE_THRESHOLD_SECONDS = 90
@@ -173,7 +174,16 @@ def get_admin_pipeline_status(
     # #44 (Enrichment Queue), and #45 (Pipeline Run History).
     extraction_queue = get_extraction_queue_status(session)
     enrichment_queue: EnrichmentQueueStatus | None = None
-    runs: list[PipelineRunItem] = []
+    runs: list[PipelineRunItem] = (
+        get_pipeline_runs(
+            session,
+            stage=run_stage,
+            outcome=run_outcome,
+            limit=run_limit,
+        )
+        if telemetry_available
+        else []
+    )
 
     return AdminPipelineResponse(
         server_time=now_utc,

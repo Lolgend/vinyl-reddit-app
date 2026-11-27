@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Info, RefreshCw, Server } from 'lucide-react'
 import { fetchAdminPipeline } from '../api/admin'
 import { ExtractionQueueCard } from '../components/admin/ExtractionQueueCard'
 import { PendingExtractionsTable } from '../components/admin/PendingExtractionsTable'
 import { PipelineLoopGrid } from '../components/admin/PipelineLoopGrid'
+import { PipelineRunsTable } from '../components/admin/PipelineRunsTable'
 import type {
   AdminPipelineResponse,
   EffectiveProcessStatus,
@@ -39,8 +40,8 @@ const LIVENESS_BADGE_MAP: Record<
 const POLL_INTERVAL_MS = 15_000
 
 export const PipelineAdmin: React.FC = () => {
-  const [runStage] = useState<LoopName | null>(null)
-  const [runOutcome] = useState<RunOutcome | null>(null)
+  const [runStage, setRunStage] = useState<LoopName | null>(null)
+  const [runOutcome, setRunOutcome] = useState<RunOutcome | null>(null)
   const [runLimit] = useState<number>(50)
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
 
@@ -62,6 +63,7 @@ export const PipelineAdmin: React.FC = () => {
   } = useQuery<AdminPipelineResponse>({
     queryKey: ['admin-pipeline', runStage, runOutcome, runLimit],
     queryFn: () => fetchAdminPipeline({ runStage, runOutcome, runLimit }),
+    placeholderData: keepPreviousData,
     refetchInterval: POLL_INTERVAL_MS,
     refetchIntervalInBackground: false,
     staleTime: 0,
@@ -310,7 +312,20 @@ export const PipelineAdmin: React.FC = () => {
 
           {/* Row 4 — Pipeline Run History Table Slot (#45) */}
           <section aria-label="Pipeline Run History" data-testid="admin-runs-slot">
-            {/* #45 mounts <PipelineRunsTable /> here */}
+            <PipelineRunsTable
+              runs={data.runs}
+              telemetryAvailable={data.telemetry_available}
+              selectedStage={runStage}
+              selectedOutcome={runOutcome}
+              onStageChange={setRunStage}
+              onOutcomeChange={setRunOutcome}
+              onResetFilters={() => {
+                setRunStage(null)
+                setRunOutcome(null)
+              }}
+              nowMs={effectiveNowMs}
+              isFetching={isFetching}
+            />
           </section>
         </>
       )}

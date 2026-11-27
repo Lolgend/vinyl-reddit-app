@@ -78,6 +78,11 @@ class _HybridSubmissionSession:
                 self._aborted = True
                 raise self._telemetry_error
             return _FakeTelemetryResult(scalar_items=self._loop_rows)
+        if "pipeline_runs" in sql:
+            if self._telemetry_error is not None:
+                self._aborted = True
+                raise self._telemetry_error
+            return _FakeTelemetryResult(scalar_items=[])
         return self._sqlite_session.execute(statement, *args, **kwargs)
 
     def rollback(self) -> None:
