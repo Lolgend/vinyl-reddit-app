@@ -1,5 +1,20 @@
 """API request and response schemas."""
 
+from backend.schemas.admin import (
+    AdminPipelineResponse,
+    EffectiveProcessStatus,
+    EnrichmentQueueStatus,
+    ExtractionQueueStatus,
+    FailedEnrichmentItem,
+    FailedEnrichmentState,
+    LoopName,
+    LoopStatus,
+    PendingExtractionItem,
+    PipelineLoopInfo,
+    PipelineProcessInfo,
+    PipelineRunItem,
+    RunOutcome,
+)
 from backend.schemas.album import (
     AlbumDetailResponse,
     AlbumHeroKPI,
@@ -40,6 +55,7 @@ from backend.schemas.release import (
 from backend.schemas.search import QuickSearchResponse, SearchResultItem
 
 __all__ = [
+    "AdminPipelineResponse",
     "AlbumDetailResponse",
     "AlbumHeroKPI",
     "AlbumIdentity",
@@ -53,9 +69,20 @@ __all__ = [
     "ChildReleaseLedgerRow",
     "ChildReleaseRow",
     "DashboardResponse",
+    "EffectiveProcessStatus",
+    "EnrichmentQueueStatus",
+    "ExtractionQueueStatus",
+    "FailedEnrichmentItem",
+    "FailedEnrichmentState",
     "LiveFeedItem",
+    "LoopName",
+    "LoopStatus",
     "NewlyAddedReleaseItem",
     "ParentAlbumInfo",
+    "PendingExtractionItem",
+    "PipelineLoopInfo",
+    "PipelineProcessInfo",
+    "PipelineRunItem",
     "PressingsProvenance",
     "ProvenanceSummary",
     "QuickSearchResponse",
@@ -65,6 +92,7 @@ __all__ = [
     "ReleaseHeroKPI",
     "ReleaseLeaderboardItem",
     "ReleasePhysicalSpecs",
+    "RunOutcome",
     "SearchResultItem",
     "ShareOfDemandItem",
     "SubmissionEngagement",

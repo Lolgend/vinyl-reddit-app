@@ -7,6 +7,7 @@ import { DirectoryExplorer } from './pages/DirectoryExplorer'
 import { AlbumDetail } from './pages/AlbumDetail'
 import { ReleaseDetail } from './pages/ReleaseDetail'
 import { ArtistDetail } from './pages/ArtistDetail'
+import { PipelineAdmin } from './pages/PipelineAdmin'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +30,7 @@ export const App: React.FC = () => {
             <Route path="albums/:albumId" element={<AlbumDetail />} />
             <Route path="releases/:releaseId" element={<ReleaseDetail />} />
             <Route path="artists/:artistId" element={<ArtistDetail />} />
+            <Route path="admin" element={<PipelineAdmin />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

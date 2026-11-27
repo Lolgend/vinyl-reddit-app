@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Layers, X } from 'lucide-react'
+import { Activity, LayoutDashboard, Layers, X } from 'lucide-react'
 import { VinylMonogram } from './VinylMonogram'
 import { FOCUS_RING_CLASS } from '../utils/uiClasses'
 
@@ -33,6 +33,7 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
   const isDashboardActive = location.pathname === '/' || location.pathname === '/dashboard'
   const isDirectoryActive = location.pathname === '/directory'
+  const isAdminActive = location.pathname === '/admin'
 
   useEffect(() => {
     if (!isOpen || !onClose) return
@@ -170,6 +171,32 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
                 </div>
               </div>
             </div>
+          </nav>
+        </div>
+
+        {/* Subdued System Section */}
+        <div className="p-4 border-t border-[#222226]" data-testid="nav-system-section">
+          <nav aria-label="System">
+            <div className="font-mono text-[10px] tracking-widest text-nav-muted uppercase px-3 mb-2 font-semibold">
+              SYSTEM
+            </div>
+            <Link
+              to="/admin"
+              onClick={handleLinkClick}
+              aria-current={isAdminActive ? 'page' : undefined}
+              className={`flex items-center gap-2.5 px-3 py-2 rounded text-[13px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
+                isAdminActive
+                  ? 'bg-[#1E1E22] text-white border-l-2 border-accent-primary font-semibold'
+                  : 'text-nav-muted hover:text-white hover:bg-[#161619]'
+              }`}
+              data-testid="nav-pipeline-admin"
+            >
+              <Activity
+                className={`w-4 h-4 shrink-0 ${isAdminActive ? 'text-accent-primary' : 'text-nav-muted'}`}
+                aria-hidden="true"
+              />
+              <span>Pipeline Admin</span>
+            </Link>
           </nav>
         </div>
       </aside>
